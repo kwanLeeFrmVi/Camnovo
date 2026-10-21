@@ -1,0 +1,44 @@
+# Generated application and compiler output
+/build/
+/DenoiserSource/
+/scripts/
+**/bin/
+**/obj/
+**/__pycache__/
+/.vs/
+/.vscode/
+*.exe
+*.dll
+*.pdb
+*.obj
+*.lib
+*.exp
+*.ilk
+*.log
+*.py[cod]
+*.zip
+*.deps.json
+*.runtimeconfig.json
+*.user
+*.suo
+
+# External model runtimes and checkpoints are installed separately
+**/LenovoDenoiserRuntime/
+**/NvidiaRuntime/
+*.pth
+*.pt
+*.onnx
+*.ckpt
+*.safetensors
+.env
+.env.*
+
+# Local diagnostic reports and legacy launcher
+/*-verification.txt
+/engine-setup-result.txt
+/build-info.json
+/SHA256SUMS.txt
+/provenance.json
+/model-profile-verification.json
+/Read me.txt
+/Camera-Controls.ps1

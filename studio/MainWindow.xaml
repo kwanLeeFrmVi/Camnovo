@@ -1,0 +1,50 @@
+<Window x:Class="LenovoCameraStudio.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Lenovo Camera Studio" Width="1260" Height="820" MinWidth="1050" MinHeight="680" WindowStartupLocation="CenterScreen" ThemeMode="System" Background="{DynamicResource CanvasBrush}" FontFamily="Segoe UI Variable Text" Foreground="{DynamicResource InkBrush}">
+  <Grid Margin="28,20,28,24">
+    <Grid.RowDefinitions><RowDefinition Height="62"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid Grid.Row="0">
+      <StackPanel><TextBlock Text="Lenovo Camera Studio" FontSize="23" FontWeight="SemiBold"/><TextBlock Text="T24mv-30 webcam · Controls apply instantly" Style="{StaticResource Muted}" Margin="0,4,0,0"/></StackPanel>
+      <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,4,0,0"><Button x:Name="CameraMenuButton" Content="Camera" Padding="12,6" Margin="0,0,18,0"><Button.ContextMenu><ContextMenu><MenuItem x:Name="InstallMenuItem" Header="Install / update camera processing…"/><MenuItem x:Name="RestartMenuItem" Header="Restart camera…"/><Separator/><MenuItem x:Name="RestoreMenuItem" Header="Remove camera processing…"/></ContextMenu></Button.ContextMenu></Button><TextBlock Text="Theme" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,10,0"/><ComboBox x:Name="ThemeChoice" Width="115" SelectedIndex="0"><ComboBoxItem Content="Windows"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></StackPanel>
+    </Grid>
+    <Grid Grid.Row="1" Margin="0,14,0,0">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/><ColumnDefinition Width="365"/></Grid.ColumnDefinitions>
+      <Grid Grid.Column="0"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Border Background="#101112" CornerRadius="12" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" ClipToBounds="True">
+          <Grid><ScrollViewer x:Name="PreviewScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" CanContentScroll="False"><Grid x:Name="PreviewCanvas"><Image x:Name="PreviewImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="LowQuality"/></Grid></ScrollViewer>
+            <StackPanel x:Name="PreviewPlaceholder" HorizontalAlignment="Center" VerticalAlignment="Center"><TextBlock Text="Connecting to camera…" FontSize="21" FontWeight="SemiBold" Foreground="#F3F3F3" HorizontalAlignment="Center"/><TextBlock Text="Preview starts automatically." FontSize="13" Foreground="#AAAAAA" Margin="0,10,0,0" HorizontalAlignment="Center"/></StackPanel>
+            <Border VerticalAlignment="Top" HorizontalAlignment="Left" Background="#BB1A1A1A" CornerRadius="6" Margin="16" Padding="9,5"><TextBlock x:Name="LiveBadge" Text="CONNECTING" FontSize="10" FontWeight="SemiBold" Foreground="#E6E6E6"/></Border>
+          </Grid>
+        </Border>
+        <Grid Grid.Row="1" Margin="0,16,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <Button x:Name="OriginalButton" Content="Hold original" Padding="15,9" IsEnabled="False" ToolTip="Temporarily turn noise reduction off while held."/>
+          <ComboBox x:Name="ZoomChoice" Grid.Column="3" Width="102" SelectedIndex="0" VerticalAlignment="Center"><ComboBoxItem Content="Fit"/><ComboBoxItem Content="100%"/><ComboBoxItem Content="200%"/></ComboBox>
+        </Grid>
+        <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,16,0,0" Padding="15,12">
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="VideoInfo" Text="Connecting to camera…" FontSize="13" FontWeight="SemiBold"/><TextBlock x:Name="PerformanceInfo" Text="No recording. No snapshots saved." Style="{StaticResource Muted}" Margin="0,4,0,0"/></StackPanel><TextBlock x:Name="EffectInfo" Grid.Column="1" Text="Noise reduction off" MaxWidth="175" Margin="12,0,0,0" Style="{StaticResource Muted}" VerticalAlignment="Center"/></Grid>
+        </Border>
+      </Grid>
+      <Border Grid.Column="2" Style="{StaticResource Card}" Padding="4,5,4,4">
+        <TabControl x:Name="SettingsTabs" Background="Transparent" BorderThickness="0">
+          <TabItem Header="Image"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="ImageControls" Margin="14,18,14,12"><Grid Margin="0,0,0,17"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><ComboBox x:Name="PresetChoice" MinWidth="170" SelectedIndex="0"><ComboBoxItem Content="Current settings"/></ComboBox><Button x:Name="SavePresetButton" Grid.Column="1" Content="Save preset" Margin="9,0,0,0" Padding="10,6"/></Grid></StackPanel></ScrollViewer></TabItem>
+          <TabItem Header="Exposure"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="ExposureControls" Margin="14,18,14,12"><TextBlock Text="Control light and motion" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="A faster shutter keeps movement sharp and reduces camera delay." Style="{StaticResource Muted}" Margin="0,6,0,18"/></StackPanel></ScrollViewer></TabItem>
+          <TabItem Header="Effects"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="EffectsControls" Margin="14,18,14,12">
+            <TextBlock Text="Noise reduction" FontSize="17" FontWeight="SemiBold"/>
+            <ComboBox x:Name="BackendChoice" SelectedIndex="0" Margin="0,12,0,8"><ComboBoxItem Content="NVIDIA RTX"/><ComboBoxItem Content="Bilateral · Custom GPU filter"/><ComboBoxItem Content="FastDVDnet · Neural"/><ComboBoxItem Content="ASwin · Real-noise attention"/><ComboBoxItem Content="ViDeNN · Blind neural"/><ComboBoxItem Content="FlowDenoise · RAFT Small"/><ComboBoxItem Content="UDVD · Unsupervised neural"/><ComboBoxItem Content="ShiftNet Small · Research"/><ComboBoxItem Content="PVDD · Real-world sRGB"/></ComboBox>
+            <TextBlock x:Name="BackendDescription" Text="NVIDIA RTX Video Effects runtime" Style="{StaticResource Muted}" Margin="0,0,0,12"/>
+            <ComboBox x:Name="DenoiseChoice" SelectedIndex="0"><ComboBoxItem Content="Off — lowest latency"/><ComboBoxItem Content="Low — preserve detail"/><ComboBoxItem Content="Medium"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Ultra — maximum smoothing"/></ComboBox>
+            <TextBlock Text="Use 100% zoom and hold Original to compare fine grain in shadows. Higher levels use more GPU time and can soften detail." Style="{StaticResource Muted}" Margin="0,10,0,20"/>
+            <StackPanel x:Name="ModelOptions" Visibility="Collapsed" Margin="0,0,0,18"><TextBlock Text="Model processing size" FontWeight="SemiBold"/><ComboBox x:Name="ModelSizeChoice" SelectedIndex="3" Margin="0,8,0,8"><ComboBoxItem Content="128 px wide · Lowest delay / very low detail"/><ComboBoxItem Content="192 px wide · Low detail"/><ComboBoxItem Content="320 px wide · Faster"/><ComboBoxItem Content="640 px wide · Balanced"/><ComboBoxItem Content="960 px wide · More detail"/><ComboBoxItem Content="1280 px wide · HD"/><ComboBoxItem Content="1920 px wide · Full HD"/></ComboBox><TextBlock Text="500 ms frame-age limit. Late model results are bypassed. Smaller processing sizes soften detail; the result scales to your video output. Keep this app open to run these models." Style="{StaticResource Muted}"/><TextBlock x:Name="ModelStatus" Style="{StaticResource Muted}" Margin="0,8,0,0"/></StackPanel>
+            <Separator Margin="0,0,0,18"/><TextBlock Text="Orientation" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,14"/>
+            <CheckBox x:Name="MirrorToggle" Content="Mirror left / right" Margin="0,0,0,13"/><CheckBox x:Name="FlipToggle" Content="Flip upside down" Margin="0,0,0,20"/>
+            <Separator Margin="0,0,0,18"/><TextBlock Text="Video output" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12"/>
+            <ComboBox x:Name="ResolutionChoice" SelectedIndex="0"><ComboBoxItem Content="1920 × 1080 · Native"/><ComboBoxItem Content="2560 × 1440 · Upscaled"/></ComboBox>
+            <TextBlock Text="1080p avoids the extra resizing step. Choose the same output size in your video-call app." Style="{StaticResource Muted}" Margin="0,10,0,20"/>
+            <Button x:Name="ResetEffectsButton" Content="Reset effects" HorizontalAlignment="Left" Padding="14,8"/>
+          </StackPanel></ScrollViewer></TabItem>
+        </TabControl>
+      </Border>
+    </Grid>
+    <Grid Grid.Row="2" Margin="0,15,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="StatusText" Text="Ready. Settings apply automatically." Style="{StaticResource Muted}" VerticalAlignment="Center"/><Button x:Name="DefaultsButton" Grid.Column="1" Content="Camera defaults" Padding="14,7"/></Grid>
+  </Grid>
+</Window>
+
+

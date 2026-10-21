@@ -1,0 +1,96 @@
+{
+  "privacy": "Local inference only; no webcam files or uploads",
+  "runtime": {
+    "python": "3.11.9",
+    "torchvision": "0.20.1+cu124",
+    "torch": "2.5.1+cu124",
+    "source": "Official python.org embedded runtime, official PyTorch CUDA wheels, PyPI dependencies"
+  },
+  "performanceCaveat": "Processing widths reduce detail before output is upscaled. Inference timing alone is not total camera latency. See live camera verification for measured frame age; this is not calibrated glass-to-glass latency.",
+  "defaultModelWidths": {
+    "FastDVDnet": 640,
+    "UDVD": 320,
+    "ASwin": 192,
+    "ViDeNN": 640,
+    "PVDD sRGB": 320,
+    "ShiftNet Small": 192,
+    "FlowDenoise": 320
+  },
+  "version": "0.8",
+  "aswinAdaptation": "Latest prediction from six past/current frames, original latest timestamp; no future wait. CUDA graph replay for ASwin and ShiftNet, fresh-input parity with eager inference verified.",
+  "temporalPolicy": "Real consecutive capture history in owned buffers, genuine original selected-frame timestamp, newest pending request, no retimestamping, explicit raw fallback; research results older than 450 ms are rejected at native delivery to leave preview overhead within the requested 500 ms frame-age target",
+  "vidennConversion": "Exact inference-layer translation; official weights; numerical TensorFlow parity test retained",
+  "models": [
+    {
+      "weightSha256": "8118974AC7DEFAA5037F73CAF87E0CB53EFCFA49AE77D55C05AB187F59E55949",
+      "license": "MIT",
+      "weights": "model_clipped_noise.pth",
+      "origin": "https://github.com/m-tassano/fastdvdnet/blob/master/model_clipped_noise.pth",
+      "repository": "https://github.com/m-tassano/fastdvdnet",
+      "revision": "c8fdf6182a0340e89dd18f5df25b47337cbede6f",
+      "folder": "fastdvdnet",
+      "name": "FastDVDnet"
+    },
+    {
+      "weightSha256": "E0DC646C07C00D2AF05E0E0549AAEB5A1C328EE53536B040CDC7209C43FCC184",
+      "license": "CC BY-NC 4.0 (non-commercial)",
+      "weights": "weights.pth",
+      "origin": "https://drive.google.com/file/d/10cb3hGqXN9wpEXHxLFyDKmnSnKz9_JBe/view",
+      "repository": "https://github.com/LLindn/ASwin-Video-Denoising",
+      "revision": "cb57e1a5b69a6bce12e440a4e1d065ef26ec2fda",
+      "folder": "aswin",
+      "name": "ASwin"
+    },
+    {
+      "weightSha256": "0B156212066D8CD35508A7EEA282B89396E9853C1BFBA4DF2D9A598192957E03",
+      "license": "MIT",
+      "weights": "converted.pth",
+      "origin": "Official ckpt_videnn/ViDeNN-tensorflow-0; converted to matching Torch layers; max FP32 error 0.00000179 in the parity test",
+      "repository": "https://github.com/clausmichele/ViDeNN",
+      "revision": "d1e818388f0cc942a347e419cbc3619f6621d3f8",
+      "folder": "videnn",
+      "name": "ViDeNN"
+    },
+    {
+      "weightSha256": "46B518EF446B395A121FD461CDEEB7D4D759F5FF1F7F8A652E6F5D420361A6F5",
+      "license": "MIT",
+      "weights": "raft_small.pth",
+      "origin": "https://download.pytorch.org/models/raft_small_C_T_V2-01064c6d.pth; official torchvision download hash checked",
+      "repository": "https://github.com/AIMZ-GFX/ComfyUI-FlowDenoise",
+      "revision": "2748fb42a883dceefb7e667f8521e6a138d6817d",
+      "folder": "flowdenoise",
+      "name": "FlowDenoise (RAFT Small)"
+    },
+    {
+      "weightSha256": "18351C89B895899CFE3BA29C3B29EAC05F6164951446A825A40F7696E1659527",
+      "license": "MIT",
+      "weights": "weights.pth",
+      "origin": "Official pretrained/blind_video_net.pt; tensors exported without training state",
+      "repository": "https://github.com/sreyas-mohan/udvd",
+      "revision": "7374e5bafde865c3a7ef11c5543d5c0b19da40af",
+      "folder": "udvd",
+      "name": "UDVD"
+    },
+    {
+      "weightSha256": "314805BAE56EA1F678022523DE557DBF4E71788FAA977721EE17EE08FD843720",
+      "license": "No standalone upstream license found; local research evaluation only, redistribution/commercial permission not established",
+      "weights": "weights.pth",
+      "origin": "Official Ours-s pretrained denoising checkpoint; Google Drive 1SJBxI2wOwgHAWx5h2N02-1UpIvEKalCg",
+      "repository": "https://github.com/dasongli1/Shift-Net",
+      "revision": "450a4f246dedccd306aa0bc02d615d797874e1ce",
+      "folder": "shiftnet",
+      "name": "ShiftNet Small"
+    },
+    {
+      "weightSha256": "C76B91C66A6E923E03A8F4847AF61968B889C34911EE964A2894506D169D0EFF",
+      "license": "MIT",
+      "weights": "weights.pth",
+      "origin": "Official sRGB checkpoint; Google Drive 1LgVuyt-DzemjU1EK0SzItVW7Qe4BmL56",
+      "repository": "https://github.com/Marinyyt/PVDD",
+      "revision": "b9399163b3209d4f9fd377d73921f38f9f1e7976",
+      "folder": "pvdd",
+      "name": "PVDD sRGB"
+    }
+  ],
+  "flowAdaptation": "Three-frame adjacent window through High, five at Ultra; genuine selected timestamp; official torchvision normalization, pre-smoothed flow inputs and strength-dependent colour rejection"
+}
