@@ -2,7 +2,7 @@
 
 A new view for your Lenovo webcam.
 
-Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.3**.
+Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.4**.
 
 This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, preserves the camera's existing identity and Microsoft USB driver, and leaves the IR interface alone. Compatibility with other webcams has not been established.
 
@@ -18,6 +18,12 @@ This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, p
 - Optional NVIDIA RTX processing, an original Direct3D 11 bilateral filter, and adapters for seven research video denoisers.
 
 The tested camera does not expose manual sensor ISO or focus through the checked Windows interfaces. There is no software-gain control. 1440p output is an upscale from 1080p; it does not recover additional sensor detail.
+
+**Automatic exposure** enables the camera's own exposure algorithm, rather than a shutter-only controller in the app. Noise can change while FPS stays similar; an increase in internal gain is one possible cause, but this camera does not expose enough telemetry to verify its gain/ISO decisions. Turning off frame-rate priority permits a lower FPS in low light; it does not force a slower shutter.
+
+Auto-mode reads on the tested camera retain the last manual shutter value. The preview also supplied no per-frame exposure-time metadata. The app therefore shows **Auto**, rather than presenting that stale value as a live measurement. If capture metadata is available, it shows the reported shutter fraction. Hardware modes and values refresh every 500 ms without changing settings or interrupting slider edits.
+
+Backlight compensation uses the camera's hardware control. Levels 0–2 were accepted and read back in live tests, but produced little visible change in the tested scenes. Use automatic exposure with a subject against a bright background to evaluate it; successful readback does not guarantee a visible improvement. The app does not replace it with a software brightness filter.
 
 ## Build and run
 
@@ -82,6 +88,7 @@ Native regression checks cover pixel orientation, Media Foundation transforms, q
 - `--self-test <path.png>` renders the tabs and themes without a camera image.
 - `--live-self-test <report.txt>` exercises live controls, preview, processing and recovery, restoring settings afterward.
 - `--model-self-test <report.txt>` measures installed research-model delivery, frame age and Off recovery.
+- `--exposure-self-test <report.txt>` checks auto exposure, live readback, stale-poll protection and immediate backlight slider delivery, restoring the tested settings afterward.
 
 Live diagnostics require the camera and installed extension, and temporarily adjust settings. This is an unsigned prototype, not a production driver package or a general webcam installer.
 

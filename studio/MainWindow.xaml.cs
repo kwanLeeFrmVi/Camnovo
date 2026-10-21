@@ -18,8 +18,13 @@ public partial class MainWindow : Window
 {
     private readonly DispatcherTimer renderTimer=new(DispatcherPriority.Render){Interval=TimeSpan.FromMilliseconds(16)};
     private readonly DispatcherTimer reconnectTimer=new(){Interval=TimeSpan.FromSeconds(2)};
+    private readonly DispatcherTimer controlsTimer=new(DispatcherPriority.Background){Interval=TimeSpan.FromMilliseconds(500)};
     private readonly Dictionary<(int,int),CameraSetting> settings=[];
     private readonly Dictionary<CameraSetting,Action> refresh=[];
+    private readonly Dictionary<CameraSetting,Action> present=[];
+    private readonly Dictionary<CameraSetting,Func<bool>> canRefresh=[];
+    private readonly Dictionary<CameraSetting,CheckBox> autoControls=[];
+    private readonly Dictionary<CameraSetting,TextBlock> controlValues=[],controlHints=[];
     private readonly Dictionary<CameraSetting,Slider> sliders=[];
     private readonly Dictionary<string,Dictionary<string,int[]>> presets=[];
     private WriteableBitmap? bitmap;
@@ -28,6 +33,9 @@ public partial class MainWindow : Window
     private long renderCount;
     private int appliedResolution;
     private bool hardwareLoaded;
+    private bool pollingHardware;
+    private long hardwareRevision;
+    private readonly object hardwarePollGate=new();
 
 
     private long filterWindowTick,filterWindowFrames,filterWindowRaw;
@@ -71,13 +79,14 @@ public partial class MainWindow : Window
         PresetChoice.SelectionChanged+=(_,_)=>{if(!loading&&PresetChoice.SelectedIndex>0)ApplyPreset(PresetChoice.SelectedItem?.ToString()??"");};
         ResetEffectsButton.Click+=async(_,_)=>{loading=true;MirrorToggle.IsChecked=FlipToggle.IsChecked=false;DenoiseChoice.SelectedIndex=0;ResolutionChoice.SelectedIndex=0;loading=false;OrientationChanged(null,null);SaveDenoise();if(appliedResolution!=0)await ChangeResolution();};
         renderTimer.Tick+=(_,_)=>RenderLatest();
+        controlsTimer.Tick+=async(_,_)=>await PollHardware();
         reconnectTimer.Tick+=async(_,_)=>{if(closing)return;UpdateEffectLabel();if(running&&bitmap is not null){CameraApi.PreviewStats(out double fps,out double age,out double copy);VideoInfo.Text=$"{bitmap.PixelWidth} × {bitmap.PixelHeight}  ·  {fps:0.0} fps";PerformanceInfo.Text=$"Frame age {age:0} ms  ·  Preview copy {copy:0.0} ms";}if(!running&&!busy)await StartPreview();};
         if(autoPreview){
             EventHandler? firstPaint=null;
-            firstPaint=async(_,_)=>{ContentRendered-=firstPaint;reconnectTimer.Start();await StartPreview();};
+            firstPaint=async(_,_)=>{ContentRendered-=firstPaint;reconnectTimer.Start();controlsTimer.Start();await StartPreview();};
             ContentRendered+=firstPaint;
         }
-        Closing+=(_,_)=>{closing=true;EndOriginal();modelHost.Dispose();renderTimer.Stop();reconnectTimer.Stop();SystemEvents.UserPreferenceChanged-=OnWindowsThemeChanged;CameraApi.CameraClose();};
+        Closing+=(_,_)=>{closing=true;EndOriginal();modelHost.Dispose();renderTimer.Stop();reconnectTimer.Stop();controlsTimer.Stop();SystemEvents.UserPreferenceChanged-=OnWindowsThemeChanged;lock(hardwarePollGate)CameraApi.CameraClose();};
         loading=false;if(autoPreview&&BackendChoice.SelectedIndex>=2&&DenoiseChoice.SelectedIndex>0)try{modelHost.Start();}catch(Exception error){Status(error.Message,true);}UpdateEffectLabel();if(!writable)Status("Choose Camera → Install / update camera processing to enable effects.");
     }
     private void OnWindowsThemeChanged(object sender,UserPreferenceChangedEventArgs e)=>Dispatcher.BeginInvoke(ApplyPalette);
@@ -109,8 +118,9 @@ public partial class MainWindow : Window
         if(priority.Read()){
             var toggle=new CheckBox{Content="Prioritize frame rate over low-light brightness",IsChecked=priority.Value==0,Margin=new Thickness(0,7,0,10)};
             toggle.Checked+=(_,_)=>{try{SetHardware(priority,0,0);}catch(Exception e){Status(e.Message,true);}};toggle.Unchecked+=(_,_)=>{try{SetHardware(priority,1,0);}catch(Exception e){Status(e.Message,true);}};ExposureControls.Children.Add(toggle);
+            ExposureControls.Children.Add(Text("With automatic exposure, turning this off allows a slower frame rate in low light. The camera decides whether to use it.",true));
         }
-        ExposureControls.Children.Add(Text("Longer shutter times can blur motion and add camera delay. The fractions shown are the actual values this webcam supports.",true));
+        ExposureControls.Children.Add(Text("Longer shutter times can blur motion and add camera delay. Manual shutter values are shown as fractions of a second.",true));
         if(!hardwareLoaded)ImageControls.Children.Add(Text("Connect the Lenovo webcam and reopen the app.",true));
     }
     private void AddSetting(CameraSetting setting,Panel parent)
@@ -120,13 +130,29 @@ public partial class MainWindow : Window
         var slider=new Slider{Minimum=0,Maximum=Math.Max(1,(setting.Max-setting.Min)/Math.Max(1,setting.Step)),Tag=setting,Name=$"Slider_{setting.Group}_{setting.Property}",SmallChange=1,LargeChange=1};
         sliders[setting]=slider;
         AutomationProperties.SetName(slider,setting.Name);row.Children.Add(slider);
-        var auto=new CheckBox{Content="Automatic",Visibility=(setting.Caps&1)!=0?Visibility.Visible:Visibility.Collapsed,Margin=new Thickness(0,9,0,0)};row.Children.Add(auto);parent.Children.Add(row);
+        var auto=new CheckBox{Content=setting.Group==1&&setting.Property==4?"Automatic exposure":"Automatic",Visibility=(setting.Caps&1)!=0?Visibility.Visible:Visibility.Collapsed,Margin=new Thickness(0,9,0,0)};row.Children.Add(auto);
+        var hint=Text("",true);hint.Margin=new Thickness(0,7,0,0);row.Children.Add(hint);parent.Children.Add(row);
+        autoControls[setting]=auto;controlValues[setting]=value;controlHints[setting]=hint;
         bool changing=false,dragging=false,pending=false;
         var timer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(100)};
-        void Commit(){timer.Stop();if(!pending)return;pending=false;try{SetHardware(setting,setting.Min+(int)Math.Round(slider.Value)*Math.Max(1,setting.Step),auto.IsChecked==true?1:2);}catch(Exception e){Status(e.Message,true);}}
-        void Refresh(){changing=true;try{if(setting.Read()){slider.Value=(setting.Value-setting.Min)/(double)Math.Max(1,setting.Step);auto.IsChecked=(setting.Mode&1)!=0;value.Text=setting.Display(setting.Value);}}finally{changing=false;}}
+        void Present(){changing=true;try{
+            slider.Value=(setting.Value-setting.Min)/(double)Math.Max(1,setting.Step);auto.IsChecked=(setting.Mode&1)!=0;value.Text=setting.Display(setting.Value);hint.Text="";
+            if(setting.Group==1&&setting.Property==4&&(setting.Mode&1)!=0){
+                bool live=CameraApi.PreviewExposure(out ulong time)==0&&time>0;
+                value.Text=live?CameraSetting.ShutterTime(time):"Auto";
+                hint.Text=live?"Camera controls exposure automatically; image noise can also change.":"Camera controls exposure automatically; image noise can also change. Live shutter time is unavailable.";
+            }
+            if(setting.Group==0&&setting.Property==8){
+                bool automatic=settings.TryGetValue((1,4),out var shutter)&&(shutter.Mode&1)!=0;
+                hint.Text=automatic?"For a subject in front of a bright background. The effect depends on the scene.":"Use Automatic exposure for backlight metering.";
+            }
+            hint.Visibility=hint.Text.Length>0?Visibility.Visible:Visibility.Collapsed;
+        }finally{changing=false;}}
+        void Refresh(){if(setting.Read())Present();}
+        present[setting]=Present;canRefresh[setting]=()=>!dragging&&!pending;
+        void Commit(){timer.Stop();if(!pending)return;pending=false;try{SetHardware(setting,setting.Min+(int)Math.Round(slider.Value)*Math.Max(1,setting.Step),auto.IsChecked==true?1:2);Present();if(settings.TryGetValue((0,8),out var backlight)&&present.TryGetValue(backlight,out var update))update();}catch(Exception e){Refresh();Status(e.Message,true);}}
         refresh[setting]=Refresh;Refresh();timer.Tick+=(_,_)=>Commit();
-        slider.ValueChanged+=(_,_)=>{if(changing||loading)return;changing=true;auto.IsChecked=false;changing=false;value.Text=setting.Display(setting.Min+(int)Math.Round(slider.Value)*Math.Max(1,setting.Step));pending=true;timer.Stop();if(!dragging)timer.Start();};
+        slider.ValueChanged+=(_,_)=>{if(changing||loading)return;++hardwareRevision;changing=true;auto.IsChecked=false;changing=false;value.Text=setting.Display(setting.Min+(int)Math.Round(slider.Value)*Math.Max(1,setting.Step));pending=true;timer.Stop();if(!dragging)timer.Start();};
         slider.AddHandler(Thumb.DragStartedEvent,new DragStartedEventHandler((_,_)=>{dragging=true;timer.Stop();}));
         slider.AddHandler(Thumb.DragCompletedEvent,new DragCompletedEventHandler((_,_)=>{dragging=false;Commit();}));
         slider.AddHandler(Mouse.PreviewMouseUpEvent,new MouseButtonEventHandler((_,_)=>{dragging=false;Commit();}),true);
@@ -136,9 +162,23 @@ public partial class MainWindow : Window
     }
     private void SetHardware(CameraSetting setting,int value,int mode)
     {
+        ++hardwareRevision;
         CameraApi.Check(CameraApi.CameraSet(setting.Group,setting.Property,setting.Snap(value),mode));
         if(!setting.Read()||setting.Mode!=mode||(mode!=1&&setting.Value!=setting.Snap(value)))throw new InvalidOperationException($"The camera did not accept {setting.Name.ToLowerInvariant()}.");
         Status($"{setting.Name}: {(mode==1?"Automatic":setting.Display(setting.Value))}");
+    }
+    private async Task PollHardware()
+    {
+        if(closing||!running||busy||pollingHardware)return;
+        pollingHardware=true;long revision=hardwareRevision;
+        try{
+            var targets=settings.Values.Where(s=>(s.Caps&1)!=0||(s.Group==0&&s.Property==8)).ToArray();
+            var reads=await Task.Run(()=>{lock(hardwarePollGate){if(closing)return [];return targets.Select(s=>{var copy=new CameraSetting(s.Name,s.Group,s.Property);return (Setting:s,Copy:copy,Success:copy.Read());}).ToArray();}});
+            if(closing||revision!=hardwareRevision)return;
+            foreach(var read in reads)if(read.Success&&canRefresh[read.Setting]()){read.Setting.Value=read.Copy.Value;read.Setting.Mode=read.Copy.Mode;}
+            foreach(var read in reads)if(read.Success&&canRefresh[read.Setting]())present[read.Setting]();
+        }catch{ /* A transient camera read must not stop preview or change a setting. */ }
+        finally{pollingHardware=false;}
     }
     private void OrientationChanged(object? sender,RoutedEventArgs? e)
     {

@@ -36,6 +36,7 @@ std::vector<BYTE> latest;
 int frameWidth=0,frameHeight=0;
 unsigned long long sequence=0;
 LONGLONG lastSampleTime=0,lastArrivalTime=0,firstArrivalTime=0;
+UINT64 lastExposureTime=0;
 std::deque<LONGLONG> recentArrivals;
 double lastConversionMs=0;
 std::atomic<bool> stopping{true};
@@ -68,12 +69,14 @@ struct ReaderCallback final : IMFSourceReaderCallback {
             Check(status);if(flags&(MF_SOURCE_READERF_ERROR|MF_SOURCE_READERF_ENDOFSTREAM))throw E_FAIL;
             if(sample){
                 const LONGLONG entered=MFGetSystemTime();LONGLONG sampled=0;sample->GetSampleTime(&sampled);
+                UINT64 exposureTime=0;ComPtr<IMFAttributes> metadata;
+                if(SUCCEEDED(sample->GetUnknown(MFSampleExtension_CaptureMetadata,IID_PPV_ARGS(&metadata))))metadata->GetUINT64(MF_CAPTURE_METADATA_EXPOSURE_TIME,&exposureTime);
                 ComPtr<IMFMediaType> current;Check(sourceReader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,&current));
                 UINT32 w=0,h=0;Check(MFGetAttributeSize(current.Get(),MF_MT_FRAME_SIZE,&w,&h));if(!w||!h||w>3840||h>2160)throw MF_E_INVALIDMEDIATYPE;
                 ComPtr<IMFMediaBuffer> buffer;Check(sample->ConvertToContiguousBuffer(&buffer));ComPtr<IMF2DBuffer> twoD;buffer.As(&twoD);
                 BYTE* pixels=nullptr;LONG stride=LONG(MFGetAttributeUINT32(current.Get(),MF_MT_DEFAULT_STRIDE,w*4));DWORD length=0;
                 if(twoD)Check(twoD->Lock2D(&pixels,&stride));else{Check(buffer->Lock(&pixels,nullptr,&length));if(length<size_t(abs(stride))*h){buffer->Unlock();throw MF_E_BUFFERTOOSMALL;}if(stride<0)pixels+=size_t(-stride)*(h-1);}
-                try{if(abs(stride)<LONG(w*4))throw MF_E_BUFFERTOOSMALL;std::lock_guard<std::mutex> lock(framesMutex);latest.resize(size_t(w)*h*4);for(UINT32 y=0;y<h;++y)memcpy(latest.data()+size_t(y)*w*4,pixels+ptrdiff_t(y)*stride,size_t(w)*4);frameWidth=int(w);frameHeight=int(h);++sequence;lastSampleTime=sampled;lastArrivalTime=MFGetSystemTime();if(!firstArrivalTime)firstArrivalTime=lastArrivalTime;lastConversionMs=(lastArrivalTime-entered)/10000.0;previewStatus=S_OK;}catch(...){if(twoD)twoD->Unlock2D();else buffer->Unlock();throw;}
+                try{if(abs(stride)<LONG(w*4))throw MF_E_BUFFERTOOSMALL;std::lock_guard<std::mutex> lock(framesMutex);latest.resize(size_t(w)*h*4);for(UINT32 y=0;y<h;++y)memcpy(latest.data()+size_t(y)*w*4,pixels+ptrdiff_t(y)*stride,size_t(w)*4);frameWidth=int(w);frameHeight=int(h);++sequence;lastSampleTime=sampled;lastExposureTime=exposureTime;lastArrivalTime=MFGetSystemTime();if(!firstArrivalTime)firstArrivalTime=lastArrivalTime;lastConversionMs=(lastArrivalTime-entered)/10000.0;previewStatus=S_OK;}catch(...){if(twoD)twoD->Unlock2D();else buffer->Unlock();throw;}
                 if(twoD)twoD->Unlock2D();else buffer->Unlock();
                 {std::lock_guard<std::mutex> lock(framesMutex);recentArrivals.push_back(lastArrivalTime);while(recentArrivals.size()>2&&recentArrivals.front()<lastArrivalTime-10000000)recentArrivals.pop_front();}
             }
@@ -115,7 +118,7 @@ HRESULT Query(int group,int property,LONG* lo,LONG* hi,LONG* step,LONG* def,LONG
 EXPORT HRESULT __cdecl CameraQuery(int group,int property,LONG* lo,LONG* hi,LONG* step,LONG* def,LONG* caps,LONG* value,LONG* mode){if(!lo||!hi||!step||!def||!caps||!value||!mode)return E_POINTER;return Dispatch([=]{return Query(group,property,lo,hi,step,def,caps,value,mode);});}
 EXPORT HRESULT __cdecl CameraSet(int group,int property,LONG value,LONG mode){return Dispatch([=]{LONG lo,hi,step,def,caps,old,oldMode;HRESULT hr=Query(group,property,&lo,&hi,&step,&def,&caps,&old,&oldMode);if(FAILED(hr))return hr;if(((caps==0)?mode!=0:((mode!=1&&mode!=2)||!(caps&mode)))||value<lo||value>hi||(step>0&&(value-lo)%step))return E_INVALIDARG;hr=group==0?imageControls->Set(property,value,mode):cameraControls->Set(property,value,mode);if(SUCCEEDED(hr))preferences[{group,property}]={value,mode};return hr;});}
 EXPORT HRESULT __cdecl PreviewStartSized(int wantedWidth,int wantedHeight){return Dispatch([=]{
-    if(reader)return S_FALSE;Check(OpenHardware());{std::lock_guard<std::mutex> lock(framesMutex);latest.clear();recentArrivals.clear();sequence=0;frameWidth=frameHeight=0;firstArrivalTime=lastArrivalTime=lastSampleTime=0;}previewStatus=S_FALSE;stopping=false;
+    if(reader)return S_FALSE;Check(OpenHardware());{std::lock_guard<std::mutex> lock(framesMutex);latest.clear();recentArrivals.clear();sequence=0;lastExposureTime=0;frameWidth=frameHeight=0;firstArrivalTime=lastArrivalTime=lastSampleTime=0;}previewStatus=S_FALSE;stopping=false;
     try{
         callback.Attach(new ReaderCallback());ComPtr<IMFAttributes> attrs;Check(MFCreateAttributes(&attrs,4));Check(attrs->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING,TRUE));Check(attrs->SetUINT32(MF_LOW_LATENCY,TRUE));Check(attrs->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK,callback.Get()));
         Check(MFCreateSourceReaderFromMediaSource(hardware.Get(),attrs.Get(),&reader));Check(reader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS,FALSE));Check(reader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM,TRUE));
@@ -128,6 +131,7 @@ EXPORT HRESULT __cdecl PreviewStartSized(int wantedWidth,int wantedHeight){retur
 EXPORT HRESULT __cdecl PreviewStart(){return PreviewStartSized(0,0);}
 EXPORT void __cdecl PreviewStop(){Dispatch([]{StopPreview();return S_OK;});}
 EXPORT HRESULT __cdecl PreviewInfo(int* width,int* height,unsigned long long* serial){if(!width||!height||!serial)return E_POINTER;std::lock_guard<std::mutex> lock(framesMutex);*width=frameWidth;*height=frameHeight;*serial=sequence;return previewStatus;}
+EXPORT HRESULT __cdecl PreviewExposure(UINT64* exposureTime){if(!exposureTime)return E_POINTER;std::lock_guard<std::mutex> lock(framesMutex);*exposureTime=0;if(stopping||previewStatus!=S_OK||MFGetSystemTime()-lastArrivalTime>25000000||!lastExposureTime)return S_FALSE;*exposureTime=lastExposureTime;return S_OK;}
 EXPORT HRESULT __cdecl PreviewCopy(BYTE* target,int width,int height,int stride,unsigned long long* serial){if(!target||!serial)return E_POINTER;std::lock_guard<std::mutex> lock(framesMutex);if(latest.empty()||width!=frameWidth||height!=frameHeight||stride<width*4)return E_INVALIDARG;if(*serial==sequence)return S_FALSE;for(int y=0;y<height;++y)memcpy(target+size_t(y)*stride,latest.data()+size_t(y)*width*4,size_t(width)*4);*serial=sequence;return S_OK;}
 EXPORT HRESULT __cdecl PreviewStats(double* fps,double* ageMs,double* copyMs){if(!fps||!ageMs||!copyMs)return E_POINTER;std::lock_guard<std::mutex> lock(framesMutex);const auto now=MFGetSystemTime();while(!recentArrivals.empty()&&recentArrivals.front()<now-10000000)recentArrivals.pop_front();*fps=(recentArrivals.size()>1&&recentArrivals.back()>recentArrivals.front())?(recentArrivals.size()-1)*10000000.0/(recentArrivals.back()-recentArrivals.front()):0;*ageMs=lastSampleTime>0?(now-lastSampleTime)/10000.0:-1;*copyMs=lastConversionMs;return previewStatus;}
 EXPORT void __cdecl CameraClose(){

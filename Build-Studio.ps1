@@ -15,4 +15,6 @@ Copy-Item "$PSScriptRoot\build\LenovoPassThrough.dll","$PSScriptRoot\build\Captu
 Copy-Item "$PSScriptRoot\LICENSE-DENOISER-MIT.txt" $destination -Force
 New-Item -ItemType Directory -Path "$destination\DenoiserSource" -Force | Out-Null
 Copy-Item "$PSScriptRoot\src\open_denoise.*","$PSScriptRoot\src\realtime_denoise.*","$PSScriptRoot\src\external_denoise.*" "$destination\DenoiserSource" -Force
+Copy-Item "$PSScriptRoot\models\*.md" "$destination\Models" -Force
+Copy-Item "$PSScriptRoot\model-performance.md","$PSScriptRoot\model-provenance.json" $destination -Force
 Write-Host "Fluent Windows app built: $destination\LenovoCameraControls.exe"

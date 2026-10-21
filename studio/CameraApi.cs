@@ -14,6 +14,7 @@ internal static class CameraApi
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewInfo(out int width,out int height,out ulong serial);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewCopy(IntPtr target,int width,int height,int stride,ref ulong serial);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewStats(out double fps,out double ageMs,out double copyMs);
+    [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewExposure(out ulong exposureTime100ns);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern void CameraClose();
     internal static void Check(int hr) { if(hr<0) Marshal.ThrowExceptionForHR(hr); }
 }
@@ -27,9 +28,15 @@ internal sealed class CameraSetting(string name,int group,int property)
     internal string Display(int value) {
         if(Group==1&&Property==4) return value<0? $"1/{Math.Pow(2,-value):0} s" : $"{Math.Pow(2,value):0.##} s";
         if(Group==0&&Property==7) return $"{value} K";
+        if(Group==0&&Property==8) return value==0?"Off":$"Level {value}";
         if(Property==2) return $"{value}°";
         if(Property is 4 or 5 or 8) return value.ToString();
         return $"{Math.Round(100.0*(value-Min)/Math.Max(1,Max-Min)):0}%";
+    }
+    internal static string ShutterTime(ulong time100ns) {
+        if(time100ns==0)return "Auto";
+        double seconds=time100ns/10000000.0;
+        return seconds<1?$"1/{1/seconds:0.##} s":$"{seconds:0.##} s";
     }
 }
 

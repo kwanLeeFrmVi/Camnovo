@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF>
     <AssemblyName>LenovoCameraControls</AssemblyName><RootNamespace>LenovoCameraStudio</RootNamespace>
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><PlatformTarget>x64</PlatformTarget>
-    <Version>0.8.3</Version><ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.8.4</Version><ApplicationManifest>app.manifest</ApplicationManifest>
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
   </PropertyGroup>
   <ItemGroup><Content Include="..\build\CameraNative.dll" Link="CameraNative.dll" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
