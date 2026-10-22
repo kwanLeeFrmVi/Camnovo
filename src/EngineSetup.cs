@@ -8,6 +8,7 @@ using System.Security.Principal;
 using System.Web.Script.Serialization;
 using System.Xml;
 using System.Security.Cryptography;
+using System.ServiceProcess;
 using Microsoft.Win32;
 
 namespace LenovoWebcamPrototype
@@ -27,7 +28,15 @@ namespace LenovoWebcamPrototype
             using (var server = machine.OpenSubKey(ComKey + @"\InprocServer32"))
             {
                 var path = server == null ? null : server.GetValue(null) as string;
-                return path != null && File.Exists(path) && String.Equals(path, Path.Combine(InstallFolder, "LenovoPassThrough.dll"), StringComparison.OrdinalIgnoreCase);
+                if(path == null || !File.Exists(path) || !String.Equals(path, Path.Combine(InstallFolder, "LenovoPassThrough.dll"), StringComparison.OrdinalIgnoreCase))return false;
+                try {
+                    using(var camera=machine.OpenSubKey(InterfaceKey(FindRgbDevice()))) {
+                        if(camera==null)return false;
+                        var chain=camera.GetValue("CameraDeviceMftCLSIDChain") as string[];
+                        return chain!=null?Array.Exists(chain,x=>String.Equals(x,Clsid,StringComparison.OrdinalIgnoreCase)):
+                            String.Equals(camera.GetValue("CameraDeviceMftCLSID") as string,Clsid,StringComparison.OrdinalIgnoreCase);
+                    }
+                }catch(InvalidOperationException){return false;}
             }
         }
 
@@ -71,25 +80,29 @@ namespace LenovoWebcamPrototype
             var path = InterfaceKey(id);
             string previousEngine=null;
             bool updating=false;
+            string legacyBefore=null;string[] chainBefore=null;
+            string backupBefore=File.Exists(BackupPath)?File.ReadAllText(BackupPath):null;
             using (var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
             using (var camera = machine.OpenSubKey(path, true))
             {
                 if (camera == null) throw new InvalidOperationException("The RGB camera interface is unavailable.");
-                if (camera.GetValue("CameraDeviceMftCLSIDChain") != null) throw new InvalidOperationException("An existing camera extension chain needs review before installation.");
                 var legacy = camera.GetValue("CameraDeviceMftCLSID") as string;
-                updating=legacy==Clsid;
-                if (legacy != null && legacy != Clsid) throw new InvalidOperationException("Another camera extension is already attached.");
-                if (legacy == Clsid && !File.Exists(BackupPath)) throw new InvalidOperationException("Existing extension has no matching backup. Installation stopped.");
-                if (legacy == null && File.Exists(BackupPath)) {
+                var chain=camera.GetValue("CameraDeviceMftCLSIDChain") as string[];
+                legacyBefore=legacy;chainBefore=chain;
+                string[] planned=PlanChain(legacy,chain);
+                updating=chain!=null?Array.Exists(chain,x=>String.Equals(x,Clsid,StringComparison.OrdinalIgnoreCase)):String.Equals(legacy,Clsid,StringComparison.OrdinalIgnoreCase);
+                if (updating && !File.Exists(BackupPath)) throw new InvalidOperationException("Existing extension has no matching backup. Installation stopped.");
+                if (File.Exists(BackupPath)) {
                     var previous = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(BackupPath));
                     if (Convert.ToString(previous["DeviceId"]) != id || Convert.ToString(previous["Clsid"]) != Clsid)
                         throw new InvalidOperationException("The earlier camera backup belongs to a different installation.");
                 }
                 Directory.CreateDirectory(InstallFolder);
-                if (legacy == null) {
-                    var backup = new Dictionary<string, object> { {"DeviceId", id}, {"Clsid", Clsid}, {"OriginalLegacyAbsent", true}, {"OriginalChainAbsent", true} };
-                    File.WriteAllText(BackupPath, new JavaScriptSerializer().Serialize(backup));
-                }
+                var backup=updating?new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(backupBefore):
+                    new Dictionary<string,object>{{"DeviceId",id},{"Clsid",Clsid},{"OriginalLegacyAbsent",legacy==null},{"OriginalChainAbsent",chain==null},{"OriginalLegacyValue",legacy},{"OriginalChainValues",chain}};
+                backup["InstalledChain"]=planned;backup["InstalledLegacyValue"]=planned.Length==0?Clsid:legacy;
+                if(!updating&&backupBefore!=null)File.Copy(BackupPath,BackupPath+".previous-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff"),false);
+                File.WriteAllText(BackupPath,new JavaScriptSerializer().Serialize(backup));
                 try {
                     CopyNvidiaRuntime();
                     var target=Path.Combine(InstallFolder,"LenovoPassThrough.dll");
@@ -108,6 +121,8 @@ namespace LenovoWebcamPrototype
                         if (settings.GetValue("Enable1440p") == null) settings.SetValue("Enable1440p", 0, RegistryValueKind.DWord);
                         if (settings.GetValue("DenoiseLevel") == null) settings.SetValue("DenoiseLevel", 0, RegistryValueKind.DWord);
                         if (settings.GetValue("DenoiseBackend") == null) settings.SetValue("DenoiseBackend", 0, RegistryValueKind.DWord);
+                        if (settings.GetValue("ShadowCleanupEnabled") == null) settings.SetValue("ShadowCleanupEnabled", 0, RegistryValueKind.DWord);
+                        if (settings.GetValue("ShadowCleanupStrength") == null) settings.SetValue("ShadowCleanupStrength", 70, RegistryValueKind.DWord);
                         settings.SetValue("SoftwareGainThirds", 0, RegistryValueKind.DWord);
                         // Grant this app's original user access to its settings only; the DLL remains protected.
                         var acl = settings.GetAccessControl();
@@ -117,26 +132,31 @@ namespace LenovoWebcamPrototype
                         acl.AddAccessRule(new RegistryAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkServiceSid,null), RegistryRights.ReadKey | RegistryRights.SetValue, AccessControlType.Allow));
                         settings.SetAccessControl(acl);
                     }
-                    camera.SetValue("CameraDeviceMftCLSID", Clsid, RegistryValueKind.String);
+                    SetAttachment(camera,backup["InstalledLegacyValue"]==null?null:Convert.ToString(backup["InstalledLegacyValue"]),planned.Length==0?null:planned);
                 } catch {
-                    if (legacy == null) {
-                        if (Convert.ToString(camera.GetValue("CameraDeviceMftCLSID")) == Clsid) camera.DeleteValue("CameraDeviceMftCLSID", false);
-                        machine.DeleteSubKeyTree(ComKey, false);
-                    }
+                    SetAttachment(camera,legacyBefore,chainBefore);
+                    if(backupBefore!=null)File.WriteAllText(BackupPath,backupBefore);else File.Delete(BackupPath);
                     throw;
                 }
             }
-            Restart(id);
-            try { VerifyCapture(false); VerifyAllControls(); }
+            int savedLevel=0;
+            using(var machine=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64))
+            using(var settings=machine.OpenSubKey(SettingsKey,true)){savedLevel=Convert.ToInt32(settings.GetValue("DenoiseLevel",0));settings.SetValue("DenoiseLevel",0,RegistryValueKind.DWord);}
+            try { Restart(id); VerifyCapture(false); VerifyAllControls(); }
             catch (Exception failure) {
-                if(updating&&previousEngine!=null) {
+                if(previousEngine!=null) {
                     string target=Path.Combine(InstallFolder,"LenovoPassThrough.dll");
                     File.Move(target,Path.Combine(InstallFolder,"LenovoPassThrough.failed-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff")+".dll"));
-                    File.Copy(previousEngine,target,false);Restart(id);
-                    throw new InvalidOperationException("Camera verification failed. The previous processing engine was restored. "+failure.Message,failure);
+                    File.Copy(previousEngine,target,false);
                 }
-                Restore();throw new InvalidOperationException("Camera verification failed and the original camera configuration was restored. " + failure.Message, failure);
+                using(var machine=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64))
+                using(var camera=machine.OpenSubKey(path,true))SetAttachment(camera,legacyBefore,chainBefore);
+                if(backupBefore!=null)File.WriteAllText(BackupPath,backupBefore);else File.Delete(BackupPath);
+                string restartNote="";
+                try{Restart(id,false);}catch(Exception recovery){restartNote=" Camera reconnection also reported: "+recovery.Message;}
+                throw new InvalidOperationException("Camera verification failed. The prior camera attachment and processing engine were restored. "+failure.Message+restartNote,failure);
             }
+            finally{using(var machine=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64))using(var settings=machine.OpenSubKey(SettingsKey,true)){if(settings!=null)settings.SetValue("DenoiseLevel",savedLevel,RegistryValueKind.DWord);}}
         }
 
         internal static void Restore()
@@ -144,22 +164,49 @@ namespace LenovoWebcamPrototype
             RequireAdmin();
             if (!File.Exists(BackupPath)) throw new InvalidOperationException("No matching installation backup was found.");
             var state = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(BackupPath));
-            if (Convert.ToString(state["Clsid"]) != Clsid || !Convert.ToBoolean(state["OriginalLegacyAbsent"]) || !Convert.ToBoolean(state["OriginalChainAbsent"]))
+            if (Convert.ToString(state["Clsid"]) != Clsid)
                 throw new InvalidOperationException("Installation backup does not match this app.");
             var id = Convert.ToString(state["DeviceId"]);
             using (var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
             using (var camera = machine.OpenSubKey(InterfaceKey(id), true)) {
                 if (camera == null) throw new InvalidOperationException("Reconnect the camera before restoring.");
                 var current = camera.GetValue("CameraDeviceMftCLSID") as string;
-                if (current != null && current != Clsid) throw new InvalidOperationException("The camera configuration changed after installation. Restore stopped.");
-                camera.DeleteValue("CameraDeviceMftCLSID", false);
+                var chain=camera.GetValue("CameraDeviceMftCLSIDChain") as string[];
+                var wanted=state.ContainsKey("InstalledChain")?Strings(state["InstalledChain"]):new string[0];
+                if(wanted.Length>0) {
+                    if(chain==null||!String.Equals(String.Join("|",chain),String.Join("|",wanted),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("The camera configuration changed after installation. Restore stopped.");
+                }else if(chain!=null||!String.Equals(current,Clsid,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("The camera configuration changed after installation. Restore stopped.");
                 using (var server = machine.OpenSubKey(ComKey + @"\InprocServer32")) {
                     if (server != null && !String.Equals(Convert.ToString(server.GetValue(null)), Path.Combine(InstallFolder, "LenovoPassThrough.dll"), StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException("The processing registration changed. Restore stopped.");
                 }
+                SetAttachment(camera,Convert.ToBoolean(state["OriginalLegacyAbsent"])?null:Convert.ToString(state["OriginalLegacyValue"]),Convert.ToBoolean(state["OriginalChainAbsent"])?null:Strings(state["OriginalChainValues"]));
                 machine.DeleteSubKeyTree(ComKey, false);
             }
-            Restart(id);
+            Restart(id,false);
+        }
+
+        // Restrict the new chaining path to the observed Lenovo/Realtek DMFT.
+        // Unknown vendors and occupied two-stage chains require separate review.
+        internal static string[] PlanChain(string legacy,string[] chain)
+        {
+            const string realtek="{09824200-9A44-4B06-8C74-92D99E09B435}";
+            if(legacy!=null&&!String.Equals(legacy,Clsid,StringComparison.OrdinalIgnoreCase)&&!String.Equals(legacy,realtek,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("An unrecognized camera extension needs review before installation.");
+            if(chain!=null&&(chain.Length>2||new HashSet<string>(chain,StringComparer.OrdinalIgnoreCase).Count!=chain.Length))throw new InvalidOperationException("An invalid or full camera extension chain needs review before installation.");
+            var others=new List<string>();
+            if(chain!=null)foreach(string item in chain)if(!String.Equals(item,Clsid,StringComparison.OrdinalIgnoreCase))others.Add(item);
+            if(chain==null&&legacy!=null&&!String.Equals(legacy,Clsid,StringComparison.OrdinalIgnoreCase))others.Add(legacy);
+            if(others.Count==0)return new string[0];
+            if(others.Count!=1||!String.Equals(others[0],realtek,StringComparison.OrdinalIgnoreCase)||
+                (legacy!=null&&!String.Equals(legacy,Clsid,StringComparison.OrdinalIgnoreCase)&&!String.Equals(legacy,realtek,StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("An unrecognized or full camera extension chain needs review before installation.");
+            return new[]{others[0],Clsid};
+        }
+        private static string[] Strings(object value){var list=new List<string>();if(value!=null)foreach(var item in (System.Collections.IEnumerable)value)list.Add(Convert.ToString(item));return list.ToArray();}
+        private static void SetAttachment(RegistryKey camera,string legacy,string[] chain)
+        {
+            if(legacy==null)camera.DeleteValue("CameraDeviceMftCLSID",false);else camera.SetValue("CameraDeviceMftCLSID",legacy,RegistryValueKind.String);
+            if(chain==null)camera.DeleteValue("CameraDeviceMftCLSIDChain",false);else camera.SetValue("CameraDeviceMftCLSIDChain",chain,RegistryValueKind.MultiString);
         }
 
         private static void RequireAdmin()
@@ -183,8 +230,8 @@ namespace LenovoWebcamPrototype
                 capture=Run(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"CaptureProbe.exe"),qhd?"--1440p":"",out output,30000);
                 File.WriteAllText(Path.Combine(folder,"capture.txt"),output);
             } finally { string stopped; Run(logman,"stop "+session+" -ets",out stopped,15000); }
-            if(capture!=0)throw new InvalidOperationException("Camera capture failed. Results: "+folder);
             int decoded=Run(Path.Combine(Environment.SystemDirectory,"tracerpt.exe"),"\""+etl+"\" -o \""+xml+"\" -of XML -y",out output,20000);
+            if(capture!=0)throw new InvalidOperationException("Camera capture failed. Results: "+folder);
             if(decoded!=0)throw new InvalidOperationException("Camera trace could not be decoded. Results: "+folder);
             int wantedFlips=0,wantedDenoise=0;
             using(var machine=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64))
@@ -297,23 +344,56 @@ namespace LenovoWebcamPrototype
                     process.Kill();process.WaitForExit();
                     output=stdout.GetAwaiter().GetResult()+stderr.GetAwaiter().GetResult();
                     File.WriteAllText(Path.Combine(InstallFolder,"timed-out-operation.txt"),output);
-                    throw new TimeoutException("Camera setup operation timed out: "+Path.GetFileName(executable));
+                    throw new System.TimeoutException("Camera setup operation timed out: "+Path.GetFileName(executable));
                 }
                 output=stdout.GetAwaiter().GetResult()+stderr.GetAwaiter().GetResult();return process.ExitCode;
             }
         }
-        private static void Restart(string id)
+        private static void Restart(string id,bool applyInstalled=true)
         {
-            var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "pnputil.exe"), "/restart-device \"" + id + "\"") {
-                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
-            };
-            using (var process = Process.Start(start)) {
-                string output = process.StandardOutput.ReadToEnd();
-                string errors = process.StandardError.ReadToEnd();
-                process.WaitForExit();
-                File.WriteAllText(Path.Combine(InstallFolder, "device-restart.txt"), output + errors);
-                if (process.ExitCode != 0) throw new InvalidOperationException("Processing was configured, but Windows could not restart the camera. Reconnect the monitor USB cable, then reopen the app.");
+            // Only the user-mode processing attachment is changing. Resetting
+            // the USB device is unnecessary and the Realtek package can defer
+            // repeated PnP restarts until a full Windows reboot.
+            StopFrameServer();
+            // Retain the recorded vendor-first attachment when reconnecting.
+            if(applyInstalled&&File.Exists(BackupPath)) {
+                var state=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(BackupPath));
+                if(state.ContainsKey("InstalledChain"))using(var machine=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64))
+                using(var camera=machine.OpenSubKey(InterfaceKey(id),true)) {
+                    var chain=Strings(state["InstalledChain"]);SetAttachment(camera,state["InstalledLegacyValue"]==null?null:Convert.ToString(state["InstalledLegacyValue"]),chain.Length==0?null:chain);
+                }
             }
+            // Frame Server can hold the old Device MFT instance and advertised
+            // output modes. Release it
+            // before verification or reconnecting preview. Camera apps must
+            // be closed for this operation; Windows starts it again on demand.
+            StopFrameServer();
+        }
+        private static void StopFrameServer()
+        {
+            using(var server=new ServiceController("FrameServer")) {
+                if(server.Status!=ServiceControllerStatus.Stopped) {
+                    uint previousProcess=FrameServerProcess();
+                    if(server.Status!=ServiceControllerStatus.StopPending)server.Stop();
+                    var deadline=DateTime.UtcNow.AddSeconds(15);
+                    do {
+                        server.Refresh();
+                        if(server.Status==ServiceControllerStatus.Stopped)return;
+                        // Windows can immediately start Frame Server again for
+                        // another client. A new service process also proves
+                        // that the old camera/DLL instance has been released.
+                        if(previousProcess!=0&&FrameServerProcess()!=previousProcess)return;
+                        System.Threading.Thread.Sleep(200);
+                    }while(DateTime.UtcNow<deadline);
+                    throw new System.TimeoutException("Windows did not release the previous camera service. Close other camera apps and try again.");
+                }
+            }
+        }
+        private static uint FrameServerProcess()
+        {
+            using(var query=new ManagementObjectSearcher("SELECT ProcessId FROM Win32_Service WHERE Name='FrameServer'"))
+            using(var result=query.Get())foreach(ManagementObject service in result)using(service)return Convert.ToUInt32(service["ProcessId"]);
+            return 0;
         }
         internal static void RestartCamera()
         {

@@ -829,9 +829,17 @@ STDMETHODIMP CTranslateOutPin::AddMediaType(
 
         (void)pNewMediaType->DeleteItem(MF_MT_VIDEO_ROTATION);
         (void)pNewMediaType->DeleteItem(MF_MT_MINIMUM_DISPLAY_APERTURE);
+        (void)pNewMediaType->DeleteItem(MF_MT_DEFAULT_STRIDE);
 
         DMFTCHECKHR_GOTO(pNewMediaType->SetUINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, TRUE), done);
-        DMFTCHECKHR_GOTO(pNewMediaType->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255), done);
+        DMFTCHECKHR_GOTO(pNewMediaType->SetUINT32(MF_MT_SAMPLE_SIZE, uiImageSize), done);
+        DMFTCHECKHR_GOTO(pNewMediaType->SetUINT32(MF_MT_COMPRESSED, FALSE), done);
+        DMFTCHECKHR_GOTO(pNewMediaType->SetUINT32(MF_MT_FIXED_SIZE_SAMPLES, TRUE), done);
+        // Realtek exposes packed YUY2. Keep its colour range while converting
+        // to the shared NV12 processing format; a packing change isn't HDR or
+        // a limited-to-full-range conversion.
+        if(guidSubType != MFVideoFormat_YUY2)
+            DMFTCHECKHR_GOTO(pNewMediaType->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255), done);
         hr = ExceptionBoundary([&]()
         {
             m_TranslatedMediaTypes.insert(std::pair<ComPtr<IMFMediaType>, ComPtr<IMFMediaType>>( pNewMediaType.Get(), pMediaType));
@@ -841,6 +849,7 @@ STDMETHODIMP CTranslateOutPin::AddMediaType(
     else
     {
         pNewMediaType = pMediaType;
+        DMFTCHECKHR_GOTO(ExceptionBoundary([&](){m_PassthroughMediaTypes.push_back(pMediaType);}),done);
     }
     // Set custom properties here
     //@@@@ README .. add these lines if you want this media types to be understood as a spherical media type
@@ -860,6 +869,20 @@ STDMETHODIMP_(BOOL) CTranslateOutPin::IsMediaTypeSupported(
     IMFMediaType **ppIMFMediaTypeFull)
 {
     DWORD dwFlags = 0, dwMatchedFlags = (MF_MEDIATYPE_EQUAL_MAJOR_TYPES | MF_MEDIATYPE_EQUAL_FORMAT_TYPES | MF_MEDIATYPE_EQUAL_FORMAT_DATA);
+
+    if(!pMediaType)return FALSE;
+    // Prefer native NV12 when a driver already provides it. Equivalent NV12
+    // types translated from YUY2/MJPEG must not add a conversion on that path.
+    for(const auto& native:m_PassthroughMediaTypes) {
+        if(SUCCEEDED(pMediaType->IsEqual(native.Get(),&dwFlags))&&(dwFlags&dwMatchedFlags)==dwMatchedFlags) {
+            if(ppIMFMediaTypeFull) {
+                ComPtr<IMFMediaType> copy;
+                if(FAILED(MFCreateMediaType(&copy))||FAILED(native->CopyAllItems(copy.Get())))return FALSE;
+                *ppIMFMediaTypeFull=copy.Detach();
+            }
+            return TRUE;
+        }
+    }
 
     auto found = std::find_if(m_TranslatedMediaTypes.begin(), m_TranslatedMediaTypes.end(),
         [&](std::pair<ComPtr<IMFMediaType>, ComPtr<IMFMediaType>> p)

@@ -21,7 +21,7 @@ STDMETHODIMP C1440pOutPin::AddMediaType(DWORD* pos, IMFMediaType* nativeType) {
     ComPtr<IMFMediaType> output;
     hr = MFCreateMediaType(&output); if (FAILED(hr)) return hr;
     hr = nativeType->CopyAllItems(output.Get()); if (FAILED(hr)) return hr;
-    const GUID outputFormat=compressed?MFVideoFormat_NV12:format;
+    const GUID outputFormat=compressed||format==MFVideoFormat_YUY2?MFVideoFormat_NV12:format;
     hr=output->SetGUID(MF_MT_SUBTYPE,outputFormat);if(FAILED(hr))return hr;
     hr = MFSetAttributeSize(output.Get(), MF_MT_FRAME_SIZE, 2560, 1440); if (FAILED(hr)) return hr;
     for (const auto& attribute : {MF_MT_DEFAULT_STRIDE, MF_MT_MINIMUM_DISPLAY_APERTURE,

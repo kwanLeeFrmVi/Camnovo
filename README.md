@@ -2,9 +2,11 @@
 
 A new view for your Lenovo webcam.
 
-Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.4**.
+Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.6**.
 
-This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, preserves the camera's existing identity and Microsoft USB driver, and leaves the IR interface alone. Compatibility with other webcams has not been established.
+This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, preserves the camera's existing identity and leaves the IR interface alone. It uses the Microsoft USB Video base driver, optionally with Realtek's extension. Compatibility with other webcams has not been established.
+
+Version 0.8.6 supports Realtek-first processing and a **Framing** tab for digital zoom, horizontal position and vertical position. Live checks verified 1080p/1440p, orientation, RTX/bilateral filtering, seven research backends, framing controls and Off recovery. Removing Camnovo restores Realtek-only capture. See the [Realtek driver installation and rollback guide](docs/realtek-webcam-driver.md).
 
 ## Features
 
@@ -12,7 +14,9 @@ This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, p
 - Immediate controls: sliders commit on release; toggles take effect immediately.
 - Camera brightness, contrast, saturation, sharpness, gamma, hue and white balance, where supported by the camera.
 - Automatic/manual exposure with shutter fractions such as **1/64 s**, backlight compensation and camera presets.
+- Driver zoom and horizontal/vertical position in **Framing**, when exposed by the Realtek driver.
 - Horizontal mirror and upside-down flip.
+- Independent **Shadow colour cleanup** toggle and strength slider: reduces colour in deep shadows while preserving YUV brightness detail. Applies on slider release, works with denoising Off, and is bypassed by Hold Original. Real dark colours may fade.
 - Native **1920 × 1080** video, or optional **2560 × 1440** upscaled output.
 - Windows light/dark theme, with optional app overrides.
 - Optional NVIDIA RTX processing, an original Direct3D 11 bilateral filter, and adapters for seven research video denoisers.
@@ -86,9 +90,11 @@ The user-mode Device MFT handles optional resizing, asynchronous denoising and o
 Native regression checks cover pixel orientation, Media Foundation transforms, queue behavior, GPU filtering and delayed output delivery. The app also supports these diagnostic entry points:
 
 - `--self-test <path.png>` renders the tabs and themes without a camera image.
+- `--shadow-self-test <report.txt>` checks immediate shadow controls, Original bypass/restore and live preview recovery, restoring the user's settings afterward.
 - `--live-self-test <report.txt>` exercises live controls, preview, processing and recovery, restoring settings afterward.
 - `--model-self-test <report.txt>` measures installed research-model delivery, frame age and Off recovery.
 - `--exposure-self-test <report.txt>` checks auto exposure, live readback, stale-poll protection and immediate backlight slider delivery, restoring the tested settings afterward.
+- `--realtek-self-test <report.txt>` checks the active Realtek/Camnovo attachment, framing sliders and reset, effect delivery, Off recovery and preview restart, restoring settings afterward.
 
 Live diagnostics require the camera and installed extension, and temporarily adjust settings. This is an unsigned prototype, not a production driver package or a general webcam installer.
 

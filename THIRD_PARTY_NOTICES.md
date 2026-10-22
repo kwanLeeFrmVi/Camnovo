@@ -13,6 +13,7 @@ Other original app, setup and utility files have no additional blanket license g
 ## Optional dependencies excluded from the repository
 
 - NVIDIA VFX, NvCV, NPP and other proprietary DLLs: separately obtained runtime, subject to its own terms. The prototype inspected [Magpie revision 3841698348bfb246623d4acf791984c8b68a577b](https://github.com/SAOG0721/Magpie/tree/3841698348bfb246623d4acf791984c8b68a577b). Magpie source and NVIDIA runtime binaries are not bundled.
+- Optional Realtek webcam driver and Device MFT: obtained separately from Microsoft's Update Catalog, subject to the package's own terms. No Realtek driver binaries are bundled. See the [installation guide](docs/realtek-webcam-driver.md).
 - Python, PyTorch, torchvision, OpenCV, TensorFlow and other model dependencies: installed separately with their own notices.
 - Pretrained model implementations and weights: excluded. [model-provenance.json](model-provenance.json) records the versions, origins, hashes and known license notes used for local evaluation. Adapter licensing does not grant permission to upstream implementations or weights.
 - ASwin: CC BY-NC 4.0; non-commercial restrictions apply.

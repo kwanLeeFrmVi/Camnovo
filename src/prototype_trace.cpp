@@ -15,6 +15,11 @@ void PrototypeShutdownTrace() {
 static void EnsureTrace() {
     InitOnceExecuteOnce(&g_traceOnce, RegisterTrace, nullptr, nullptr);
 }
+void PrototypeOperation(const char* operation, HRESULT result, DWORD stream) {
+    EnsureTrace();
+    TraceLoggingWrite(g_PrototypeProvider, "Operation", TraceLoggingString(operation,"Operation"),
+        TraceLoggingHResult(result,"Result"),TraceLoggingUInt32(stream,"Stream"));
+}
 void PrototypeInitialize(HRESULT result, DWORD inputs, DWORD outputs) {
     EnsureTrace();
     TraceLoggingWrite(g_PrototypeProvider, "Initialize",

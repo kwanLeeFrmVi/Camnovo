@@ -4,7 +4,7 @@ Copyright (c) 2026 Lenovo Camera Studio contributors
 
 Applies to src/open_denoise.cpp, src/open_denoise.h,
 src/realtime_denoise.cpp, src/realtime_denoise.h,
-src/external_denoise.cpp, src/external_denoise.h, and the original
+src/external_denoise.cpp, src/external_denoise.h, src/shadow_cleanup.h, and the original
 adapter/worker/test code in models/. Upstream models, pretrained weights
 and dependencies retain their own licenses; they are excluded from this grant.
 

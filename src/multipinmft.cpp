@@ -499,6 +499,7 @@ STDMETHODIMP CMultipinMft::GetOutputAvailableType(
     }
 
 done:
+    PrototypeOperation("GetOutputAvailableType",hr);
     return hr;
 }
 
@@ -847,6 +848,7 @@ STDMETHODIMP  CMultipinMft::GetInputStreamAttributes(
     hr  = spIPin->getPinAttributes(ppAttributes);
 
 done:
+    PrototypeOperation("GetInputStreamAttributes",hr);
     DMFTRACE(DMFT_GENERAL, TRACE_LEVEL_INFORMATION, "%!FUNC! exiting %x = %!HRESULT!", hr, hr);
     return hr;
 }
@@ -876,6 +878,7 @@ STDMETHODIMP  CMultipinMft::GetOutputStreamAttributes(
 
     DMFTCHECKHR_GOTO(spoPin->getPinAttributes(ppAttributes), done );
 done:
+    PrototypeOperation("GetOutputStreamAttributes",hr);
     DMFTRACE(DMFT_GENERAL, TRACE_LEVEL_INFORMATION, "%!FUNC! exiting %x = %!HRESULT!", hr, hr);
     return hr;
 }
@@ -908,6 +911,7 @@ STDMETHODIMP CMultipinMft::SetInputStreamState(
     DMFTCHECKHR_GOTO(spiPin->SetInputStreamState(pMediaType, value, dwFlags),done);
    
 done:
+    PrototypeOperation("SetInputStreamState",hr);
     DMFTRACE(DMFT_GENERAL, TRACE_LEVEL_INFORMATION, "%!FUNC! exiting %x = %!HRESULT!", hr, hr);
     return hr;
 }
@@ -960,6 +964,7 @@ STDMETHODIMP CMultipinMft::SetOutputStreamState(
     DMFTCHECKHR_GOTO(ChangeMediaTypeEx(dwStreamID, pMediaType, state),done);
    
 done:    
+    PrototypeOperation("SetOutputStreamState",hr);
     DMFTRACE(DMFT_GENERAL, TRACE_LEVEL_INFORMATION, "%!FUNC! exiting %x = %!HRESULT!", hr, hr);
     return hr;
 }
@@ -1335,6 +1340,7 @@ STDMETHODIMP CMultipinMft::GetAttributes(
     }
 
 done:
+    PrototypeOperation("GetAttributes",hr);
     return hr;
 }
 #endif

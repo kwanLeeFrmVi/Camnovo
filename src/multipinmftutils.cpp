@@ -167,8 +167,10 @@ STDMETHODIMP CompareMediaTypesForConverter(
           }
           else
           {
-              //This is a disruptive operation. Actually a decoder operation!
-              *operation = DeviceMftTransformTypeDecoder;
+              // Packed YUY2 -> NV12 is an uncompressed video-processor
+              // conversion. Decoder enumeration is only for compressed input.
+              *operation = IsKnownUncompressedVideoType(guidTypeA)&&IsKnownUncompressedVideoType(guidTypeB)
+                  ?DeviceMftTransformTypeXVP:DeviceMftTransformTypeDecoder;
           }
       }
   done:

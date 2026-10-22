@@ -7,6 +7,7 @@ public partial class MainWindow
     {
         ShowInTaskbar=false;Opacity=0;Show();var log=new List<string>();
         int oldBackend=SettingsStore.Read("DenoiseBackend"),oldQ=SettingsStore.Read("DenoiseLevel"),oldWidth=SettingsStore.Read("DenoiseModelWidth",640);
+        var oldWidths=Enumerable.Range(2,7).ToDictionary(b=>b,b=>SettingsStore.Read($"DenoiseModelWidth{b}",DefaultModelWidth(b)));
         var shutter=settings[(1,4)];shutter.Read();int oldShutter=shutter.Value,oldMode=shutter.Mode;
         var priority=new CameraSetting("Priority",1,19);bool hasPriority=priority.Read();int oldPriority=priority.Value,oldPriorityMode=priority.Mode;
         try{
@@ -39,7 +40,7 @@ public partial class MainWindow
             if(failures>0)throw new Exception($"{failures} model/recovery checks failed; see individual measurements above.");
             log.Add($"PASS: {(only==0?"all seven research backends":"selected backend")} deliver processed frames in the actual camera pipeline below the 500 ms P95 frame-age limit at their tested sizes; source timestamps retained, original-frame fallback counted, Off recovery verified. Each latency sample covers 50 observations over approximately 3.25 seconds. No webcam images saved.");
         }catch(Exception error){log.Add("FAIL: "+error);throw;}
-        finally{modelHost.Stop();try{SetHardware(shutter,oldShutter,oldMode);if(hasPriority)SetHardware(priority,oldPriority,oldPriorityMode);}catch{}SettingsStore.Write("DenoiseBackend",oldBackend);SettingsStore.Write("DenoiseLevel",oldQ);SettingsStore.Write("DenoiseModelWidth",oldWidth);File.WriteAllLines(path,log);Close();}
+        finally{modelHost.Stop();try{SetHardware(shutter,oldShutter,oldMode);if(hasPriority)SetHardware(priority,oldPriority,oldPriorityMode);}catch{}SettingsStore.Write("DenoiseBackend",oldBackend);SettingsStore.Write("DenoiseLevel",oldQ);SettingsStore.Write("DenoiseModelWidth",oldWidth);foreach(var width in oldWidths)SettingsStore.Write($"DenoiseModelWidth{width.Key}",width.Value);File.WriteAllLines(path,log);Close();}
     }
     private async Task<(double Fps,double Age,double P95,double Max)> SampleModelPerformance(){var frames=new List<double>();var ages=new List<double>();for(int i=0;i<50;i++){await Task.Delay(65);CameraApi.PreviewStats(out double fps,out double age,out _);frames.Add(fps);ages.Add(age);}frames.Sort();ages.Sort();return(frames[25],ages[25],ages[47],ages[^1]);}
 }

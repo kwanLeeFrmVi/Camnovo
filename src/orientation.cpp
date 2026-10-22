@@ -2,6 +2,7 @@
 #include "orientation.h"
 #include "flip_pixels.h"
 #include "locked_frame.h"
+#include "shadow_cleanup.h"
 #include <mutex>
 #include <cmath>
 #pragma optimize("gt", on)
@@ -10,7 +11,8 @@ std::mutex settingsMutex;
 ULONGLONG lastRead = 0;
 DWORD cachedFlags = 0;
 int cachedGain = 0;
-struct Adjustments {DWORD flags;int gain;};
+DWORD cachedShadow = 0;
+struct Adjustments {DWORD flags;int gain;DWORD shadow;};
 Adjustments Settings() {
     std::lock_guard<std::mutex> lock(settingsMutex);
     const auto now = GetTickCount64();
@@ -22,22 +24,28 @@ Adjustments Settings() {
         DWORD rawGain=0;bytes=sizeof(rawGain);
         if(RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\LenovoWebcamPrototype",L"SoftwareGainThirds",RRF_RT_REG_DWORD|RRF_SUBKEY_WOW6464KEY,nullptr,&rawGain,&bytes)!=ERROR_SUCCESS)rawGain=0;
         cachedGain=static_cast<int>(rawGain);if(cachedGain < -6 || cachedGain > 12)cachedGain=0;
+        DWORD enabled=0,strength=70;bytes=sizeof(enabled);
+        RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\LenovoWebcamPrototype",L"ShadowCleanupEnabled",RRF_RT_REG_DWORD|RRF_SUBKEY_WOW6464KEY,nullptr,&enabled,&bytes);
+        bytes=sizeof(strength);
+        if(RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\LenovoWebcamPrototype",L"ShadowCleanupStrength",RRF_RT_REG_DWORD|RRF_SUBKEY_WOW6464KEY,nullptr,&strength,&bytes)!=ERROR_SUCCESS)strength=70;
+        cachedShadow=enabled==1&&strength<=100?strength:0;
         lastRead = now;
     }
-    return {cachedFlags,cachedGain};
+    return {cachedFlags,cachedGain,cachedShadow};
 }
 
 }
 HRESULT ApplyPrototypeOrientation(IMFMediaType* type, IMFSample** sample) {
-    const auto settings=Settings();return ApplyPrototypeImageAdjustments(type,sample,settings.flags,settings.gain);
+    const auto settings=Settings();return ApplyPrototypeImageAdjustments(type,sample,settings.flags,settings.gain,settings.shadow);
 }
 HRESULT ApplyPrototypeOrientationWithFlags(IMFMediaType* type, IMFSample** sample, DWORD flags) {
     return ApplyPrototypeImageAdjustments(type,sample,flags,0);
 }
-HRESULT ApplyPrototypeImageAdjustments(IMFMediaType* type,IMFSample** sample,DWORD flags,int gainThirds) {
+HRESULT ApplyPrototypeImageAdjustments(IMFMediaType* type,IMFSample** sample,DWORD flags,int gainThirds,DWORD shadowStrength) {
     flags &= 3;
     if(gainThirds < -6 || gainThirds > 12)return E_INVALIDARG;
-    if (!flags && !gainThirds) return S_FALSE;
+    if(shadowStrength>100)return E_INVALIDARG;
+    if (!flags && !gainThirds && !shadowStrength) return S_FALSE;
     if (!type || !sample || !*sample) return E_POINTER;
     GUID format; UINT32 width = 0, height = 0;
     HRESULT hr = type->GetGUID(MF_MT_SUBTYPE, &format);
@@ -95,6 +103,8 @@ HRESULT ApplyPrototypeImageAdjustments(IMFMediaType* type,IMFSample** sample,DWO
         }
         if(nv12)for(UINT32 y=0;y<height/2;y++){BYTE* row=target.scan+static_cast<ptrdiff_t>(height+y)*target.stride;for(UINT32 x=0;x<width;x++)row[x]=chroma[row[x]];}
     }
+    if(shadowStrength)CleanupShadowColour(target.scan,target.stride,width,height,format,
+        MFGetAttributeUINT32(type,MF_MT_VIDEO_NOMINAL_RANGE,MFNominalRange_16_235)==MFNominalRange_0_255,shadowStrength);
     // Unlock before returning a sample containing the new buffer.
     source.Unlock();
     target.Unlock();

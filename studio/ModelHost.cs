@@ -31,7 +31,7 @@ internal sealed class ModelHost : IDisposable
         return relative.Length>0&&File.Exists(Path.Combine(root,"models",relative));
     }
     internal static bool EngineCurrent {
-        get {try{using var installed=File.OpenRead(Path.Combine(SettingsStore.InstallFolder,"LenovoPassThrough.dll"));using var bundled=File.OpenRead(Path.Combine(AppContext.BaseDirectory,"LenovoPassThrough.dll"));return SHA256.HashData(installed).SequenceEqual(SHA256.HashData(bundled));}catch{return false;}}
+        get {try{if(!SettingsStore.Installed)return false;using var installed=File.OpenRead(Path.Combine(SettingsStore.InstallFolder,"LenovoPassThrough.dll"));using var bundled=File.OpenRead(Path.Combine(AppContext.BaseDirectory,"LenovoPassThrough.dll"));return SHA256.HashData(installed).SequenceEqual(SHA256.HashData(bundled));}catch{return false;}}
     }
     internal string Message {
         get {if(process is null)return "Model worker stopped.";if(process.HasExited)return "Model worker stopped unexpectedly. Select Off, then a level to restart.";try{using var file=new FileStream(statusPath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);using var doc=JsonDocument.Parse(file);var data=doc.RootElement;return data.GetProperty("state").GetString() switch{"starting"=>"Starting model runtime…","loading"=>data.GetProperty("message").GetString()??"Loading model…","error"=>"Model error: "+data.GetProperty("message").GetString(),_=>"Local model runtime ready. NVIDIA CUDA is used on this PC."};}catch{return "Starting model runtime…";}}

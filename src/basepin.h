@@ -634,9 +634,10 @@ public:
 
 class CTranslateOutPin : public COutPin {
     /*List of GUIDS to be translated*/
-    const GUID tranlateGUIDS[2] =  {
+    const GUID tranlateGUIDS[3] =  {
         MFVideoFormat_H264,
-        MFVideoFormat_MJPG
+        MFVideoFormat_MJPG,
+        MFVideoFormat_YUY2
     };
 
     // @@@@README 
@@ -677,6 +678,7 @@ public:
 protected:
 
     map<ComPtr<IMFMediaType>, ComPtr<IMFMediaType>> m_TranslatedMediaTypes;
+    vector<ComPtr<IMFMediaType>> m_PassthroughMediaTypes;
 };
 
 

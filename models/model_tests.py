@@ -32,6 +32,12 @@ for backend in ([a.only] if a.only else COUNTS):
         assert out.shape==(1,3,h,w) and center==expected
         assert torch.isfinite(out).all() and after<before*.95,(before,after)
         entry={'backend':backend,'name':NAMES[backend],'width':w,'height':h,'device':str(adapter.device),'beforeMSE':before,'afterMSE':after,'coldMs':cold,'warmMs':sum(timings)/len(timings),'pass':True}
+        if backend==4:
+            contrast=torch.zeros_like(clean);contrast[:,:,:,w//2:]=1
+            contrast[:,0,::2,:]=1;contrast[:,2,:,::2]=1
+            extreme,_=adapter.run(contrast,3)
+            assert torch.isfinite(extreme).all(),'ViDeNN overflowed on high-contrast input'
+            entry['highContrastFinite']=True
         if backend in (3,7) and adapter.device.type=='cuda':
             changed=(noisy+.06).clamp(0,1);graph_model=adapter.graph_model
             try:

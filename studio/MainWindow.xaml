@@ -2,7 +2,7 @@
   <Grid Margin="28,20,28,24">
     <Grid.RowDefinitions><RowDefinition Height="62"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Grid Grid.Row="0">
-      <StackPanel><TextBlock Text="Lenovo Camera Studio" FontSize="23" FontWeight="SemiBold"/><TextBlock Text="T24mv-30 webcam · Controls apply instantly" Style="{StaticResource Muted}" Margin="0,4,0,0"/></StackPanel>
+      <StackPanel><TextBlock Text="Lenovo Camera Studio" FontSize="23" FontWeight="SemiBold"/><TextBlock x:Name="DriverInfo" Text="T24mv-30 webcam · Controls apply instantly" Style="{StaticResource Muted}" Margin="0,4,0,0"/></StackPanel>
       <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,4,0,0"><Button x:Name="CameraMenuButton" Content="Camera" Padding="12,6" Margin="0,0,18,0"><Button.ContextMenu><ContextMenu><MenuItem x:Name="InstallMenuItem" Header="Install / update camera processing…"/><MenuItem x:Name="RestartMenuItem" Header="Restart camera…"/><Separator/><MenuItem x:Name="RestoreMenuItem" Header="Remove camera processing…"/></ContextMenu></Button.ContextMenu></Button><TextBlock Text="Theme" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,10,0"/><ComboBox x:Name="ThemeChoice" Width="115" SelectedIndex="0"><ComboBoxItem Content="Windows"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></StackPanel>
     </Grid>
     <Grid Grid.Row="1" Margin="0,14,0,0">
@@ -15,7 +15,7 @@
           </Grid>
         </Border>
         <Grid Grid.Row="1" Margin="0,16,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <Button x:Name="OriginalButton" Content="Hold original" Padding="15,9" IsEnabled="False" ToolTip="Temporarily turn noise reduction off while held."/>
+          <Button x:Name="OriginalButton" Content="Hold original" Padding="15,9" IsEnabled="False" ToolTip="Temporarily turn noise reduction and shadow colour cleanup off while held."/>
           <ComboBox x:Name="ZoomChoice" Grid.Column="3" Width="102" SelectedIndex="0" VerticalAlignment="Center"><ComboBoxItem Content="Fit"/><ComboBoxItem Content="100%"/><ComboBoxItem Content="200%"/></ComboBox>
         </Grid>
         <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,16,0,0" Padding="15,12">
@@ -33,6 +33,12 @@
             <ComboBox x:Name="DenoiseChoice" SelectedIndex="0"><ComboBoxItem Content="Off — lowest latency"/><ComboBoxItem Content="Low — preserve detail"/><ComboBoxItem Content="Medium"/><ComboBoxItem Content="High"/><ComboBoxItem Content="Ultra — maximum smoothing"/></ComboBox>
             <TextBlock Text="Use 100% zoom and hold Original to compare fine grain in shadows. Higher levels use more GPU time and can soften detail." Style="{StaticResource Muted}" Margin="0,10,0,20"/>
             <StackPanel x:Name="ModelOptions" Visibility="Collapsed" Margin="0,0,0,18"><TextBlock Text="Model processing size" FontWeight="SemiBold"/><ComboBox x:Name="ModelSizeChoice" SelectedIndex="3" Margin="0,8,0,8"><ComboBoxItem Content="128 px wide · Lowest delay / very low detail"/><ComboBoxItem Content="192 px wide · Low detail"/><ComboBoxItem Content="320 px wide · Faster"/><ComboBoxItem Content="640 px wide · Balanced"/><ComboBoxItem Content="960 px wide · More detail"/><ComboBoxItem Content="1280 px wide · HD"/><ComboBoxItem Content="1920 px wide · Full HD"/></ComboBox><TextBlock Text="500 ms frame-age limit. Late model results are bypassed. Smaller processing sizes soften detail; the result scales to your video output. Keep this app open to run these models." Style="{StaticResource Muted}"/><TextBlock x:Name="ModelStatus" Style="{StaticResource Muted}" Margin="0,8,0,0"/></StackPanel>
+            <Separator Margin="0,0,0,18"/>
+            <CheckBox x:Name="ShadowCleanupToggle" Content="Shadow colour cleanup" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <TextBlock Text="Reduces coloured speckles and red edges in deep shadows. Brightness detail stays intact; real colours in dark areas can fade." Style="{StaticResource Muted}" Margin="0,0,0,12"/>
+            <Grid><TextBlock Text="Strength"/><TextBlock x:Name="ShadowStrengthValue" HorizontalAlignment="Right"/></Grid>
+            <Slider x:Name="ShadowStrengthSlider" Minimum="0" Maximum="100" Value="70" TickFrequency="5" SmallChange="5" LargeChange="10" IsSnapToTickEnabled="True" AutomationProperties.Name="Shadow colour cleanup strength" Margin="0,4,0,8"/>
+            <TextBlock x:Name="ShadowCleanupHint" Text="Works with any denoiser, including Off. Applies immediately." Style="{StaticResource Muted}" Margin="0,0,0,20"/>
             <Separator Margin="0,0,0,18"/><TextBlock Text="Orientation" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,14"/>
             <CheckBox x:Name="MirrorToggle" Content="Mirror left / right" Margin="0,0,0,13"/><CheckBox x:Name="FlipToggle" Content="Flip upside down" Margin="0,0,0,20"/>
             <Separator Margin="0,0,0,18"/><TextBlock Text="Video output" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12"/>
@@ -40,6 +46,7 @@
             <TextBlock Text="1080p avoids the extra resizing step. Choose the same output size in your video-call app." Style="{StaticResource Muted}" Margin="0,10,0,20"/>
             <Button x:Name="ResetEffectsButton" Content="Reset effects" HorizontalAlignment="Left" Padding="14,8"/>
           </StackPanel></ScrollViewer></TabItem>
+          <TabItem x:Name="FramingTab" Header="Framing" Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="FramingControls" Margin="14,18,14,12"><TextBlock Text="Zoom and reframe" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Digital framing from the camera driver. Zooming in crops the image; it does not add detail." Style="{StaticResource Muted}" Margin="0,6,0,18"/></StackPanel></ScrollViewer></TabItem>
         </TabControl>
       </Border>
     </Grid>

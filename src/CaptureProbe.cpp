@@ -32,10 +32,13 @@ static void Capture(bool request1440p, bool listOnly) {
     CoTaskMemFree(devices);
     if (!selected) throw HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     ComPtr<IMFMediaSource> source;
+    std::puts("Opening RGB media source...");
     Check(selected->ActivateObject(IID_PPV_ARGS(&source)));
     try {
         ComPtr<IMFSourceReader> reader;
+        std::puts("Creating source reader...");
         Check(MFCreateSourceReaderFromMediaSource(source.Get(), nullptr, &reader));
+        std::puts("Selecting RGB video stream...");
         Check(reader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE));
         Check(reader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE));
         bool selected1440p = false;

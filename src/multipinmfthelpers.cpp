@@ -1764,15 +1764,9 @@ HRESULT CPinCreationFactory::CreatePin(_In_ ULONG ulInputStreamId, /* The Input 
         }
         else
         {
-#if defined MF_DEVICEMFT_DECODING_MEDIATYPE_NEEDED
+        // Normalize packed Realtek YUY2 and compressed camera frames to NV12
+        // before denoising. Native NV12 follows the existing pass-through path.
         spOutPin = new (std::nothrow) CTranslateOutPin(ulOutStreamId, m_spDeviceTransform.Get(), spKscontrol.Get());         // Create the output pin
-#else
-        spOutPin = new (std::nothrow) COutPin(ulOutStreamId, m_spDeviceTransform.Get(), spKscontrol.Get()
-#if ((defined NTDDI_WIN10_VB) && (NTDDI_VERSION >= NTDDI_WIN10_VB))
-            , MFSampleAllocatorUsage_DoesNotAllocate
-#endif
-        );         // Create the output pin
-#endif
         }
         DMFTCHECKNULL_GOTO(spOutPin.Get(), done, E_OUTOFMEMORY);
         

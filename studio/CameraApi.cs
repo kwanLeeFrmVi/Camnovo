@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.IO;
+using System.Text;
 using System.Security.AccessControl;
 using Microsoft.Win32;
 
@@ -7,6 +8,7 @@ namespace LenovoCameraStudio;
 
 internal static class CameraApi
 {
+    [DllImport("CameraNative.dll",CallingConvention=CallingConvention.Cdecl,CharSet=CharSet.Unicode)] internal static extern int CameraInstance(StringBuilder instance,int capacity);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int CameraQuery(int group,int property,out int min,out int max,out int step,out int def,out int caps,out int value,out int mode);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int CameraSet(int group,int property,int value,int mode);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewStartSized(int width,int height);
@@ -16,7 +18,7 @@ internal static class CameraApi
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewStats(out double fps,out double ageMs,out double copyMs);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewExposure(out ulong exposureTime100ns);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern void CameraClose();
-    internal static void Check(int hr) { if(hr<0) Marshal.ThrowExceptionForHR(hr); }
+    internal static void Check(int hr) { if(hr==unchecked((int)0xC00D7167))throw new InvalidOperationException("Windows needs a restart to finish installing the webcam driver. Restart Windows, then reopen Camnovo.");if(hr<0) Marshal.ThrowExceptionForHR(hr); }
 }
 
 internal sealed class CameraSetting(string name,int group,int property)
@@ -26,6 +28,8 @@ internal sealed class CameraSetting(string name,int group,int property)
     internal bool Read() => CameraApi.CameraQuery(Group,Property,out Min,out Max,out Step,out Default,out Caps,out Value,out Mode)>=0;
     internal int Snap(int value) => Math.Clamp(Min+(int)Math.Round((value-Min)/(double)Math.Max(1,Step))*Math.Max(1,Step),Min,Max);
     internal string Display(int value) {
+        if(Group==1&&Property==3)return $"{value/100.0:0.0}×";
+        if(Group==1&&Property is 0 or 1)return value==0?"Centre":$"{value:+0;-0;0}";
         if(Group==1&&Property==4) return value<0? $"1/{Math.Pow(2,-value):0} s" : $"{Math.Pow(2,value):0.##} s";
         if(Group==0&&Property==7) return $"{value} K";
         if(Group==0&&Property==8) return value==0?"Off":$"Level {value}";
@@ -45,7 +49,14 @@ internal static class SettingsStore
     internal const string Key=@"SOFTWARE\LenovoWebcamPrototype";
     internal static string InstallFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"LenovoWebcamPrototype");
     internal static bool Installed {
-        get {using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);using var key=root.OpenSubKey(@"SOFTWARE\Classes\CLSID\{73DF2569-1A6D-4976-BA38-F089C0162864}\InprocServer32");return string.Equals(Convert.ToString(key?.GetValue(null)),Path.Combine(InstallFolder,"LenovoPassThrough.dll"),StringComparison.OrdinalIgnoreCase)&&File.Exists(Path.Combine(InstallFolder,"LenovoPassThrough.dll"));}
+        get {using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);using var key=root.OpenSubKey(@"SOFTWARE\Classes\CLSID\{73DF2569-1A6D-4976-BA38-F089C0162864}\InprocServer32");using var camera=OpenCamera(root);return IsAttached(camera?.GetValue("CameraDeviceMftCLSID"),camera?.GetValue("CameraDeviceMftCLSIDChain"))&&string.Equals(Convert.ToString(key?.GetValue(null)),Path.Combine(InstallFolder,"LenovoPassThrough.dll"),StringComparison.OrdinalIgnoreCase)&&File.Exists(Path.Combine(InstallFolder,"LenovoPassThrough.dll"));}
+    }
+    private const string CameraCategory=@"SYSTEM\CurrentControlSet\Control\DeviceClasses\{e5323777-f976-4f5b-9b55-b94699c46e44}";
+    private static string? CameraInterface(RegistryKey root){var id=new StringBuilder(512);if(CameraApi.CameraInstance(id,id.Capacity)<0)return null;string name=@"##?#"+id.ToString().Replace('\\','#')+"#{e5323777-f976-4f5b-9b55-b94699c46e44}";using var category=root.OpenSubKey(CameraCategory);using var camera=category?.OpenSubKey(name);return camera is null?null:name;}
+    private static RegistryKey? OpenCamera(RegistryKey root){string? name=CameraInterface(root);return name is null?null:root.OpenSubKey(CameraCategory+@"\"+name+@"\#GLOBAL\Device Parameters");}
+    internal static bool IsAttached(object? legacy,object? chain){const string clsid="{73DF2569-1A6D-4976-BA38-F089C0162864}";return chain is string[] stages?stages.Any(stage=>string.Equals(stage,clsid,StringComparison.OrdinalIgnoreCase)):chain is null&&string.Equals(legacy as string,clsid,StringComparison.OrdinalIgnoreCase);}
+    internal static string DriverProvider {
+        get {try{using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);string? name=CameraInterface(root);if(name is null)return "";string id=name[4..name.LastIndexOf('#')].Replace('#','\\');using var device=root.OpenSubKey(@"SYSTEM\CurrentControlSet\Enum\"+id);string? driver=device?.GetValue("Driver") as string;using var details=driver is null?null:root.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\"+driver);return details?.GetValue("ProviderName") as string??"";}catch{return "";}}
     }
     internal static int Read(string name,int fallback=0) {
         using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);

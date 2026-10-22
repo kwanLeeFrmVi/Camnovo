@@ -139,7 +139,9 @@ class Adapter:
         # Noise controls are sigma for non-blind models, output blend for blind ones.
         sigma=(12,20,32,48)[level-1]/255.
         amp=self.device.type=='cuda'
-        with torch.autocast(self.device.type, dtype=torch.float16, enabled=amp and self.backend!=5):
+        # ViDeNN's deep temporal stack can overflow FP16 on real camera input.
+        # Keep its trained weights/operations in FP32, as in the TF reference.
+        with torch.autocast(self.device.type, dtype=torch.float16, enabled=amp and self.backend not in (4,5)):
             if self.backend==2:
                 x=F.pad(frames,(0,(-w)%4,0,(-h)%4),mode='reflect')
                 noise=torch.full((1,1,*x.shape[-2:]),sigma,device=self.device)
