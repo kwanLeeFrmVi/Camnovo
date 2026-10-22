@@ -20,6 +20,7 @@ Version 0.8.7 supports Realtek-first processing and a **Framing** tab with digit
 - Native **1920 × 1080 at 30 FPS** video. The synthetic 1440p option has been removed.
 - Automatic neural processing size: starts at a live profile within the selected maximum and reduces size when results exceed the latency budget. Smaller sizes lose detail. Turn automatic sizing off to use a fixed size.
 - Delivery status confirms actual filtered output and explicitly identifies original video during loading, errors and lateness. Filtering can recover after a prolonged fallback without changing the selected effect.
+- Consistent selection of the RGB camera interface carrying both Realtek and Camnovo processing; installation detection checks the interface actually opened.
 - Windows light/dark theme, with optional app overrides.
 - Optional NVIDIA RTX processing, an original Direct3D 11 bilateral filter, and adapters for seven research video denoisers.
 

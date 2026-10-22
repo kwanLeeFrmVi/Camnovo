@@ -271,27 +271,26 @@ namespace LenovoWebcamPrototype
                     settings.SetValue("Enable1440p",0,RegistryValueKind.DWord);
                     settings.SetValue("DenoiseLevel",0,RegistryValueKind.DWord);
                     settings.SetValue("SoftwareGainThirds",0,RegistryValueKind.DWord);
-                    Restart(FindRgbDevice());
+                    // Install already reloaded and verified native capture.
+                    // Controls are live settings; do not tear down a healthy
+                    // Frame Server session again before testing each one.
+                    if(oldQhd!=0)Restart(FindRgbDevice());
                     foreach(int flags in new[]{1,2,3}) {
                         settings.SetValue("FlipFlags",flags,RegistryValueKind.DWord);
                         VerifyCapture(false);results.Add("FlipFlags "+flags+": 120 frames captured, extension output and applied orientation confirmed.");
                         File.WriteAllLines(Path.Combine(InstallFolder,"control-verification.txt"),results);
                     }
                     settings.SetValue("FlipFlags",0,RegistryValueKind.DWord);
-                    settings.SetValue("Enable1440p",1,RegistryValueKind.DWord);
-                    Restart(FindRgbDevice());VerifyCapture(true);
-                    results.Add("1440p: advertised and received 2560x1440, 120 frames captured through the extension.");
-                    File.WriteAllLines(Path.Combine(InstallFolder,"control-verification.txt"),results);
                     if(File.Exists(Path.Combine(InstallFolder,@"Nvidia\NVVideoEffects.dll"))) {
                         settings.SetValue("DenoiseBackend",0,RegistryValueKind.DWord);
                         foreach(int quality in new[]{1,2,3,4}) {
-                            settings.SetValue("DenoiseLevel",quality,RegistryValueKind.DWord);VerifyCapture(true);
-                            results.Add("NVIDIA denoise level "+quality+" + 1440p: 120 frames captured; filtered frame success confirmed in extension trace.");
+                            settings.SetValue("DenoiseLevel",quality,RegistryValueKind.DWord);VerifyCapture(false);
+                            results.Add("NVIDIA denoise level "+quality+" at native 1080p: 120 frames captured; filtered frame success confirmed in extension trace.");
                             File.WriteAllLines(Path.Combine(InstallFolder,"control-verification.txt"),results);
                         }
                     }
-                    settings.SetValue("DenoiseBackend",1,RegistryValueKind.DWord);settings.SetValue("DenoiseLevel",2,RegistryValueKind.DWord);VerifyCapture(true);
-                    results.Add("Open-source D3D11 GPU bilateral Medium + 1440p: 120 frames captured; filtered frame success confirmed in extension trace.");
+                    settings.SetValue("DenoiseBackend",1,RegistryValueKind.DWord);settings.SetValue("DenoiseLevel",2,RegistryValueKind.DWord);VerifyCapture(false);
+                    results.Add("Open-source D3D11 GPU bilateral Medium at native 1080p: 120 frames captured; filtered frame success confirmed in extension trace.");
                     File.WriteAllLines(Path.Combine(InstallFolder,"control-verification.txt"),results);
                 } finally {
                     settings.SetValue("FlipFlags",oldFlags,RegistryValueKind.DWord);
@@ -299,7 +298,7 @@ namespace LenovoWebcamPrototype
                     settings.SetValue("DenoiseLevel",oldDenoise,RegistryValueKind.DWord);
                     settings.SetValue("DenoiseBackend",oldBackend,RegistryValueKind.DWord);
                     settings.SetValue("SoftwareGainThirds",0,RegistryValueKind.DWord);
-                    Restart(FindRgbDevice());
+                    if(oldQhd!=0)Restart(FindRgbDevice());
                 }
             }
         }
@@ -363,11 +362,16 @@ namespace LenovoWebcamPrototype
                     var chain=Strings(state["InstalledChain"]);SetAttachment(camera,state["InstalledLegacyValue"]==null?null:Convert.ToString(state["InstalledLegacyValue"]),chain.Length==0?null:chain);
                 }
             }
-            // Frame Server can hold the old Device MFT instance and advertised
-            // output modes. Release it
-            // before verification or reconnecting preview. Camera apps must
-            // be closed for this operation; Windows starts it again on demand.
-            StopFrameServer();
+            // Reconnect only after Frame Server is running. Source selection
+            // separately prefers its camera interface over legacy capture.
+            // Do not stop the service a second time after applying the chain.
+            using(var server=new ServiceController("FrameServer")) {
+                server.Refresh();
+                if(server.Status==ServiceControllerStatus.StopPending)server.WaitForStatus(ServiceControllerStatus.Stopped,TimeSpan.FromSeconds(15));
+                server.Refresh();
+                if(server.Status==ServiceControllerStatus.Stopped)server.Start();
+                server.WaitForStatus(ServiceControllerStatus.Running,TimeSpan.FromSeconds(15));
+            }
         }
         private static void StopFrameServer()
         {

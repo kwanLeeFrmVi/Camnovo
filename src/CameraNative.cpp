@@ -17,6 +17,7 @@
 #include <future>
 #include <condition_variable>
 #include <map>
+#include "camera_source_selection.h"
 using Microsoft::WRL::ComPtr;
 namespace {
 // Source, controls and reader belong to one MTA, so controls target the source
@@ -26,6 +27,7 @@ ComPtr<IAMVideoProcAmp> imageControls;
 ComPtr<IAMCameraControl> cameraControls;
 ComPtr<IMFSourceReader> reader;
 std::wstring hardwareInstance;
+std::wstring hardwareLink;
 struct Preference {LONG value,mode;};
 std::map<std::pair<int,int>,Preference> preferences;
 std::mutex lifecycleMutex,commandsMutex,framesMutex;
@@ -43,15 +45,14 @@ double lastConversionMs=0;
 std::atomic<bool> stopping{true};
 std::atomic<HRESULT> previewStatus{S_FALSE};
 void Check(HRESULT hr){if(FAILED(hr))throw hr;}
-bool Target(std::wstring path){for(auto& c:path)c=towlower(c);return path.find(L"vid_17ef&pid_483c&mi_00")!=std::wstring::npos;}
 HRESULT OpenHardware() {
     if(hardware)return S_OK;
     ComPtr<IMFAttributes> attrs;HRESULT hr=MFCreateAttributes(&attrs,1);if(FAILED(hr))return hr;
     hr=attrs->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);if(FAILED(hr))return hr;
     IMFActivate** devices=nullptr;UINT32 count=0;hr=MFEnumDeviceSources(attrs.Get(),&devices,&count);if(FAILED(hr))return hr;
-    hardwareInstance.clear();
+    hardwareInstance.clear();hardwareLink.clear();int preferredRank=0;
     ComPtr<IMFActivate> selected;
-    for(UINT32 i=0;i<count;++i){wchar_t* link=nullptr;UINT32 length=0;if(SUCCEEDED(devices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,&link,&length))){if(Target(link)){selected=devices[i];std::wstring path=link;size_t first=path.find(L'#',4),second=first==std::wstring::npos?first:path.find(L'#',first+1),end=second==std::wstring::npos?second:path.find(L'#',second+1);if(end!=std::wstring::npos){hardwareInstance=path.substr(4,end-4);for(auto& c:hardwareInstance)if(c==L'#')c=L'\\';}}CoTaskMemFree(link);}devices[i]->Release();}CoTaskMemFree(devices);
+    for(UINT32 i=0;i<count;++i){wchar_t* link=nullptr;UINT32 length=0;if(SUCCEEDED(devices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,&link,&length))){int rank=CamnovoSourceRank(link);if(rank>preferredRank){preferredRank=rank;selected=devices[i];hardwareLink=link;std::wstring path=link;size_t first=path.find(L'#',4),second=first==std::wstring::npos?first:path.find(L'#',first+1),end=second==std::wstring::npos?second:path.find(L'#',second+1);if(end!=std::wstring::npos){hardwareInstance=path.substr(4,end-4);for(auto& c:hardwareInstance)if(c==L'#')c=L'\\';}}CoTaskMemFree(link);}devices[i]->Release();}CoTaskMemFree(devices);
     if(!selected)return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     hr=selected->ActivateObject(IID_PPV_ARGS(&hardware));if(FAILED(hr))return hr;
     hardware.As(&imageControls);hardware.As(&cameraControls);
@@ -118,6 +119,7 @@ HRESULT Query(int group,int property,LONG* lo,LONG* hi,LONG* step,LONG* def,LONG
 }
 #define EXPORT extern "C" __declspec(dllexport)
 EXPORT HRESULT __cdecl CameraInstance(wchar_t* target,int capacity){if(!target||capacity<1)return E_INVALIDARG;return Dispatch([=]{HRESULT hr=OpenHardware();if(hardwareInstance.empty())return FAILED(hr)?hr:E_FAIL;if(hardwareInstance.size()+1>size_t(capacity))return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);wcscpy_s(target,capacity,hardwareInstance.c_str());return S_OK;});}
+EXPORT HRESULT __cdecl CameraSymbolicLink(wchar_t* target,int capacity){if(!target||capacity<1)return E_INVALIDARG;return Dispatch([=]{HRESULT hr=OpenHardware();if(FAILED(hr))return hr;if(hardwareLink.size()+1>size_t(capacity))return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);wcscpy_s(target,capacity,hardwareLink.c_str());return S_OK;});}
 EXPORT HRESULT __cdecl CameraQuery(int group,int property,LONG* lo,LONG* hi,LONG* step,LONG* def,LONG* caps,LONG* value,LONG* mode){if(!lo||!hi||!step||!def||!caps||!value||!mode)return E_POINTER;return Dispatch([=]{return Query(group,property,lo,hi,step,def,caps,value,mode);});}
 EXPORT HRESULT __cdecl CameraSet(int group,int property,LONG value,LONG mode){return Dispatch([=]{LONG lo,hi,step,def,caps,old,oldMode;HRESULT hr=Query(group,property,&lo,&hi,&step,&def,&caps,&old,&oldMode);if(FAILED(hr))return hr;if(((caps==0)?mode!=0:((mode!=1&&mode!=2)||!(caps&mode)))||value<lo||value>hi||(step>0&&(value-lo)%step))return E_INVALIDARG;hr=group==0?imageControls->Set(property,value,mode):cameraControls->Set(property,value,mode);if(SUCCEEDED(hr))preferences[{group,property}]={value,mode};return hr;});}
 EXPORT HRESULT __cdecl PreviewStartSized(int wantedWidth,int wantedHeight){return Dispatch([=]{

@@ -7,13 +7,9 @@
 #include <cstdio>
 #include <string>
 #include <cwctype>
+#include "camera_source_selection.h"
 using Microsoft::WRL::ComPtr;
 static void Check(HRESULT hr) { if (FAILED(hr)) throw hr; }
-static bool Target(const wchar_t* link) {
-    std::wstring s(link);
-    for (auto& c : s) c = static_cast<wchar_t>(towlower(c));
-    return s.find(L"vid_17ef&pid_483c&mi_00#") != std::wstring::npos;
-}
 static void Capture(bool request1440p, bool listOnly) {
     ComPtr<IMFAttributes> attrs;
     Check(MFCreateAttributes(&attrs, 1));
@@ -21,16 +17,19 @@ static void Capture(bool request1440p, bool listOnly) {
     IMFActivate** devices = nullptr; UINT32 count = 0;
     Check(MFEnumDeviceSources(attrs.Get(), &devices, &count));
     ComPtr<IMFActivate> selected;
+    int preferredRank=0;
     for (UINT32 i = 0; i < count; ++i) {
         wchar_t* link = nullptr; UINT32 len = 0;
         if (SUCCEEDED(devices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, &link, &len))) {
-            if (Target(link)) selected = devices[i];
+            int rank=CamnovoSourceRank(link);
+            if (rank>preferredRank) { selected = devices[i];preferredRank=rank; }
             CoTaskMemFree(link);
         }
         devices[i]->Release();
     }
     CoTaskMemFree(devices);
     if (!selected) throw HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    std::puts(preferredRank==2?"Selected RGB path: Frame Server camera interface.":"Selected RGB path: legacy capture interface (processing attachment must be checked separately).");
     ComPtr<IMFMediaSource> source;
     std::puts("Opening RGB media source...");
     Check(selected->ActivateObject(IID_PPV_ARGS(&source)));

@@ -9,6 +9,7 @@ namespace LenovoCameraStudio;
 internal static class CameraApi
 {
     [DllImport("CameraNative.dll",CallingConvention=CallingConvention.Cdecl,CharSet=CharSet.Unicode)] internal static extern int CameraInstance(StringBuilder instance,int capacity);
+    [DllImport("CameraNative.dll",CallingConvention=CallingConvention.Cdecl,CharSet=CharSet.Unicode)] internal static extern int CameraSymbolicLink(StringBuilder link,int capacity);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int CameraQuery(int group,int property,out int min,out int max,out int step,out int def,out int caps,out int value,out int mode);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int CameraSet(int group,int property,int value,int mode);
     [DllImport("CameraNative.dll", CallingConvention=CallingConvention.Cdecl)] internal static extern int PreviewStartSized(int width,int height);
@@ -51,12 +52,17 @@ internal static class SettingsStore
     internal static bool Installed {
         get {using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);using var key=root.OpenSubKey(@"SOFTWARE\Classes\CLSID\{73DF2569-1A6D-4976-BA38-F089C0162864}\InprocServer32");using var camera=OpenCamera(root);return IsAttached(camera?.GetValue("CameraDeviceMftCLSID"),camera?.GetValue("CameraDeviceMftCLSIDChain"))&&string.Equals(Convert.ToString(key?.GetValue(null)),Path.Combine(InstallFolder,"LenovoPassThrough.dll"),StringComparison.OrdinalIgnoreCase)&&File.Exists(Path.Combine(InstallFolder,"LenovoPassThrough.dll"));}
     }
-    private const string CameraCategory=@"SYSTEM\CurrentControlSet\Control\DeviceClasses\{e5323777-f976-4f5b-9b55-b94699c46e44}";
-    private static string? CameraInterface(RegistryKey root){var id=new StringBuilder(512);if(CameraApi.CameraInstance(id,id.Capacity)<0)return null;string name=@"##?#"+id.ToString().Replace('\\','#')+"#{e5323777-f976-4f5b-9b55-b94699c46e44}";using var category=root.OpenSubKey(CameraCategory);using var camera=category?.OpenSubKey(name);return camera is null?null:name;}
-    private static RegistryKey? OpenCamera(RegistryKey root){string? name=CameraInterface(root);return name is null?null:root.OpenSubKey(CameraCategory+@"\"+name+@"\#GLOBAL\Device Parameters");}
+    private const string CameraClasses=@"SYSTEM\CurrentControlSet\Control\DeviceClasses";
+    internal static string? RegistrationPath(string link){
+        if(!link.StartsWith(@"\\?\usb#vid_17ef&pid_483c&mi_00#",StringComparison.OrdinalIgnoreCase)||!link.EndsWith(@"\global",StringComparison.OrdinalIgnoreCase))return null;
+        string name=link[4..^7];int category=name.LastIndexOf("#{",StringComparison.Ordinal);
+        if(category<0||!Guid.TryParse(name[(category+1)..],out var guid)||name.Contains('\\')||name.Contains('/'))return null;
+        return guid.ToString("B")+@"\##?#"+name;
+    }
+    private static RegistryKey? OpenCamera(RegistryKey root){var link=new StringBuilder(1024);if(CameraApi.CameraSymbolicLink(link,link.Capacity)<0)return null;string? path=RegistrationPath(link.ToString());return path is null?null:root.OpenSubKey(CameraClasses+@"\"+path+@"\#GLOBAL\Device Parameters");}
     internal static bool IsAttached(object? legacy,object? chain){const string clsid="{73DF2569-1A6D-4976-BA38-F089C0162864}";return chain is string[] stages?stages.Any(stage=>string.Equals(stage,clsid,StringComparison.OrdinalIgnoreCase)):chain is null&&string.Equals(legacy as string,clsid,StringComparison.OrdinalIgnoreCase);}
     internal static string DriverProvider {
-        get {try{using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);string? name=CameraInterface(root);if(name is null)return "";string id=name[4..name.LastIndexOf('#')].Replace('#','\\');using var device=root.OpenSubKey(@"SYSTEM\CurrentControlSet\Enum\"+id);string? driver=device?.GetValue("Driver") as string;using var details=driver is null?null:root.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\"+driver);return details?.GetValue("ProviderName") as string??"";}catch{return "";}}
+        get {try{using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);var id=new StringBuilder(512);if(CameraApi.CameraInstance(id,id.Capacity)<0)return "";using var device=root.OpenSubKey(@"SYSTEM\CurrentControlSet\Enum\"+id);string? driver=device?.GetValue("Driver") as string;using var details=driver is null?null:root.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\"+driver);return details?.GetValue("ProviderName") as string??"";}catch{return "";}}
     }
     internal static int Read(string name,int fallback=0) {
         using var root=RegistryKey.OpenBaseKey(RegistryHive.LocalMachine,RegistryView.Registry64);

@@ -43,6 +43,8 @@ public partial class MainWindow : Window
     private string filterShare="";
     private bool recentMixed;
     private long observedFiltered,lastFilterProgressTick,denoiseSelectionTick;
+    private long previewRecoveryRevision;
+    internal int PreviewRecoveryCount {get;private set;}
     private (int,int) observedMode=(-1,-1);
     private readonly ModelHost modelHost=new();
     private bool shadowReady;
@@ -60,9 +62,9 @@ public partial class MainWindow : Window
         DenoiseChoice.SelectedIndex=Math.Clamp(SettingsStore.Read("DenoiseLevel"),0,4);
         BackendChoice.SelectedIndex=Math.Clamp(SettingsStore.Read("DenoiseBackend"),0,8);
         ModelSizeChoice.SelectedIndex=Array.IndexOf(ModelWidths,SettingsStore.Read("DenoiseModelWidth",640));if(ModelSizeChoice.SelectedIndex<0)ModelSizeChoice.SelectedIndex=3;
-        ModelSizeChoice.SelectionChanged+=(_,_)=>{if(!loading){int width=ModelWidths[ModelSizeChoice.SelectedIndex];SettingsStore.Write("DenoiseModelWidth",width);SettingsStore.Write($"DenoiseModelWidth{BackendChoice.SelectedIndex}",width);Status("Model processing size updated. The 500 ms limit remains active.");}};
+        ModelSizeChoice.SelectionChanged+=(_,_)=>{if(!loading){int width=ModelWidths[ModelSizeChoice.SelectedIndex];SettingsStore.Write("DenoiseModelWidth",width);SettingsStore.Write($"DenoiseModelWidth{BackendChoice.SelectedIndex}",width);SchedulePreviewRecovery();Status("Model processing size updated. The 500 ms limit remains active.");}};
         AutoModelSizeToggle.IsChecked=SettingsStore.Read("DenoiseAutoSize",1)!=0;
-        void SaveAutoSize(){ModelSizeLabel.Text=AutoModelSizeToggle.IsChecked==true?"Maximum processing size":"Fixed processing size";if(!loading)try{SettingsStore.Write("DenoiseAutoSize",AutoModelSizeToggle.IsChecked==true?1:0);Status("Model sizing updated. Smaller processing sizes lose detail.");}catch(Exception e){Status(e.Message,true);}}
+        void SaveAutoSize(){ModelSizeLabel.Text=AutoModelSizeToggle.IsChecked==true?"Maximum processing size":"Fixed processing size";if(!loading)try{SettingsStore.Write("DenoiseAutoSize",AutoModelSizeToggle.IsChecked==true?1:0);SchedulePreviewRecovery();Status("Model sizing updated. Smaller processing sizes lose detail.");}catch(Exception e){Status(e.Message,true);}}
         AutoModelSizeToggle.Checked+=(_,_)=>SaveAutoSize();AutoModelSizeToggle.Unchecked+=(_,_)=>SaveAutoSize();SaveAutoSize();
         bool writable=SettingsStore.Installed&&SettingsStore.Writable;MirrorToggle.IsEnabled=FlipToggle.IsEnabled=writable;
         // Retire synthetic 1440p output: the connected camera exposes 1080p video.
@@ -83,7 +85,7 @@ public partial class MainWindow : Window
         CameraMenuButton.Click+=(_,_)=>{CameraMenuButton.ContextMenu.PlacementTarget=CameraMenuButton;CameraMenuButton.ContextMenu.Placement=PlacementMode.Bottom;CameraMenuButton.ContextMenu.IsOpen=true;};
         InstallMenuItem.Click+=async(_,_)=>await RunSetup("--install-engine");
         RestartMenuItem.Click+=async(_,_)=>await RunSetup("--restart-camera");
-        DenoiseReconnectButton.Click+=async(_,_)=>await RunSetup("--restart-camera");
+        DenoiseReconnectButton.Click+=async(_,_)=>await ReconnectPreview();
         RestoreMenuItem.Click+=async(_,_)=>await RunSetup("--restore-engine");
         PresetChoice.SelectionChanged+=(_,_)=>{if(!loading&&PresetChoice.SelectedIndex>0)ApplyPreset(PresetChoice.SelectedItem?.ToString()??"");};
         ResetEffectsButton.Click+=(_,_)=>{loading=true;MirrorToggle.IsChecked=FlipToggle.IsChecked=ShadowCleanupToggle.IsChecked=false;ShadowStrengthSlider.Value=70;DenoiseChoice.SelectedIndex=0;loading=false;OrientationChanged(null,null);SaveShadowCleanup();SaveDenoise();};
@@ -230,7 +232,29 @@ public partial class MainWindow : Window
     }
     private void SaveDenoise()
     {
-        if(loading)return;try{denoiseSelectionTick=Environment.TickCount64;lastFilterProgressTick=0;observedMode=(-1,-1);if(BackendChoice.SelectedIndex>=2&&DenoiseChoice.SelectedIndex>0)modelHost.Start();else modelHost.Stop();SettingsStore.Write("DenoiseBackend",BackendChoice.SelectedIndex);SettingsStore.Write("DenoiseLevel",originalHeld?0:DenoiseChoice.SelectedIndex);UpdateEffectLabel();Status(DenoiseChoice.SelectedIndex==0?"Noise reduction off. Fresh frames bypass the worker immediately.":"Noise reduction requested. Check the delivery status for confirmation.");}catch(Exception e){SettingsStore.Write("DenoiseLevel",0);Status(e.Message,true);}
+        if(loading)return;try{denoiseSelectionTick=Environment.TickCount64;lastFilterProgressTick=0;observedMode=(-1,-1);if(BackendChoice.SelectedIndex>=2&&DenoiseChoice.SelectedIndex>0)modelHost.Start();else modelHost.Stop();SettingsStore.Write("DenoiseBackend",BackendChoice.SelectedIndex);SettingsStore.Write("DenoiseLevel",originalHeld?0:DenoiseChoice.SelectedIndex);SchedulePreviewRecovery();UpdateEffectLabel();Status(DenoiseChoice.SelectedIndex==0?"Noise reduction off. Fresh frames bypass the worker immediately.":"Noise reduction requested. Check the delivery status for confirmation.");}catch(Exception e){SettingsStore.Write("DenoiseLevel",0);Status(e.Message,true);}
+    }
+    private void SchedulePreviewRecovery(){long revision=++previewRecoveryRevision;_=RecoverPreviewDelay(revision);}
+    private async Task RecoverPreviewDelay(long revision)
+    {
+        // Expensive inference can leave Realtek/Frame Server buffers delayed
+        // even after switching to a faster model or Off. Debounce edits and
+        // reopen only this preview once if upstream delay is still measurable.
+        await Task.Delay(1000);
+        if(revision!=previewRecoveryRevision||closing||busy||!running||originalHeld)return;
+        bool off=DenoiseChoice.SelectedIndex==0;
+        if(!off&&(BackendChoice.SelectedIndex<2||AutoModelSizeToggle.IsChecked!=true))return;
+        CameraApi.PreviewStats(out _,out double age,out _);
+        double sourceAge=off?age:modelHost.ReadStatus(BackendChoice.SelectedIndex).SourceAge;
+        if(sourceAge<250)return;
+        await ReconnectPreview();
+    }
+    private async Task ReconnectPreview()
+    {
+        if(closing||busy||!running)return;
+        ++previewRecoveryRevision;
+        await StopPreview();if(closing)return;await StartPreview();
+        if(running){++PreviewRecoveryCount;Status("Preview reconnected to clear delayed frames.");}
     }
     private void InitializeShadowControls()
     {
@@ -280,7 +304,7 @@ public partial class MainWindow : Window
         DenoiseDeliveryPanel.Visibility=requested?Visibility.Visible:Visibility.Collapsed;DenoiseDeliveryTitle.Text=delivery.Title;DenoiseDeliveryAdvice.Text=delivery.Advice;
         bool delayedSource=requested&&confirmed&&backend.Result==unchecked((int)0x800705B4)&&runtime?.SourceAge>=250;
         DenoiseReconnectButton.Visibility=delayedSource?Visibility.Visible:Visibility.Collapsed;
-        if(delayedSource){DenoiseDeliveryTitle.Text="Showing original · camera delay too high";DenoiseDeliveryAdvice.Text=$"Frames already arrive about {runtime!.SourceAge:0} ms old before denoising. Close other camera apps and restart camera processing to clear delayed frames.";}
+        if(delayedSource){DenoiseDeliveryTitle.Text="Showing original · camera delay too high";DenoiseDeliveryAdvice.Text=$"Frames already arrive about {runtime!.SourceAge:0} ms old before denoising. Close other camera apps and reconnect the preview to clear delayed frames.";}
         DenoiseDeliveryTitle.SetResourceReference(TextBlock.ForegroundProperty,delivery.Warning?"SystemFillColorCautionBrush":"InkBrush");
         if(requested){EffectInfo.Text=DenoiseDeliveryTitle.Text;LiveBadge.Text=delivery.Warning?(delivery.Title.StartsWith("Denoising")?"LIVE · FILTERING INTERRUPTED":"LIVE · ORIGINAL IMAGE"):"LIVE";}
         else if(running)LiveBadge.Text="LIVE";
