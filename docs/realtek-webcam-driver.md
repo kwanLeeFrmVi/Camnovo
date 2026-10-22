@@ -50,15 +50,15 @@ Use the updated native app that supports the Realtek chain (version **0.8.6** or
 Camera → Realtek framing/processing → Camnovo effects → video app
 ```
 
-Realtek supplies packed YUY2 frames on the tested webcam. Camnovo uses the Windows video processor to convert these to NV12 before filtering, while retaining YUY2 on the connection to Realtek. This lets the RTX, bilateral and model backends use the same input format at 1080p and 1440p. The conversion keeps the reported colour range.
+Realtek supplies packed YUY2 frames on the tested webcam. Camnovo uses the Windows video processor to convert these to NV12 before filtering, while retaining YUY2 on the connection to Realtek. This lets the RTX, bilateral and model backends use the same input format at native 1080p. The conversion keeps the reported colour range.
 
-The app's **Framing** tab appears when the driver exposes zoom, horizontal position and vertical position. Sliders apply on release; **Reset framing** returns to the driver's defaults. Preview Fit/100%/200% zoom remains a separate display-only control.
+The app's **Framing** tab appears when the driver exposes zoom, horizontal position and vertical position. Zoom applies on slider release. Position uses an arrow pad: click for one step, hold for continued movement, or press the centre button to reset position without changing zoom. Arrow keys and Home also work while the pad has focus. **Reset framing** returns zoom and position to the driver's defaults. Preview Fit/100%/200% zoom remains a separate display-only control.
 
 Camnovo checks the active camera's effective processing attachment before enabling its effects. Merely having the Camnovo DLL registered is not enough. Unknown vendor extensions and unsupported/full chains are rejected rather than overwritten.
 
 The installer uses the Windows `CameraDeviceMftCLSIDChain` mechanism and preserves vendor-first order. [Microsoft's Device MFT chaining documentation](https://learn.microsoft.com/en-us/windows-hardware/drivers/stream/dmft-design#configure-the-dmft-chain)
 
-**Verified on 22 October 2026:** 1080p/1440p captures, mirror/flip, all four RTX levels and bilateral filtering passed through the combined chain. Framing sliders applied on release and read back correctly; reset and preview restart passed. Seven research backends delivered filtered 1080p output below the 500 ms P95 frame-age target at their tested processing sizes; see [measurements](../model-performance.md). Off restored approximately 30 FPS. Removing Camnovo restored Realtek-only live capture, and reinstallation restored the pair. The IR interface remained on Microsoft's driver.
+**Verified on 22 October 2026:** 1080p/1440p captures, mirror/flip, all four RTX levels and bilateral filtering passed through the combined chain. Framing controls read back correctly; reset and preview restart passed. Version 0.8.7 additionally verified the arrow pad, limits, keyboard control and native-only output. The earlier 1440p capture check verified an upscale, not extra sensor detail; that option is now removed. See [native modes](native-video-modes.md). Seven research backends delivered filtered 1080p output below the 500 ms P95 frame-age target at their tested processing sizes; see [measurements](../model-performance.md). Off restored approximately 30 FPS. Removing Camnovo restored Realtek-only live capture, and reinstallation restored the pair. The IR interface remained on Microsoft's driver.
 
 The installer reloads the user-mode camera service for processing changes. It does not reset the USB device or reinstall the Realtek driver. Changing the Windows driver itself can still require a full Windows restart.
 

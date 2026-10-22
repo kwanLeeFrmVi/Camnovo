@@ -2,11 +2,11 @@
 
 A new view for your Lenovo webcam.
 
-Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.6**.
+Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.7**.
 
 This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, preserves the camera's existing identity and leaves the IR interface alone. It uses the Microsoft USB Video base driver, optionally with Realtek's extension. Compatibility with other webcams has not been established.
 
-Version 0.8.6 supports Realtek-first processing and a **Framing** tab for digital zoom, horizontal position and vertical position. Live checks verified 1080p/1440p, orientation, RTX/bilateral filtering, seven research backends, framing controls and Off recovery. Removing Camnovo restores Realtek-only capture. See the [Realtek driver installation and rollback guide](docs/realtek-webcam-driver.md).
+Version 0.8.7 supports Realtek-first processing and a **Framing** tab with digital zoom and an arrow pad for position. Click or hold an arrow to move; press the centre button to reset position. Native 1080p capture, orientation, RTX/bilateral filtering, seven research backends, framing controls and Off recovery have been verified. Removing Camnovo restores Realtek-only capture. See the [Realtek driver installation and rollback guide](docs/realtek-webcam-driver.md).
 
 ## Features
 
@@ -17,11 +17,11 @@ Version 0.8.6 supports Realtek-first processing and a **Framing** tab for digita
 - Driver zoom and horizontal/vertical position in **Framing**, when exposed by the Realtek driver.
 - Horizontal mirror and upside-down flip.
 - Independent **Shadow colour cleanup** toggle and strength slider: reduces colour in deep shadows while preserving YUV brightness detail. Applies on slider release, works with denoising Off, and is bypassed by Hold Original. Real dark colours may fade.
-- Native **1920 × 1080** video, or optional **2560 × 1440** upscaled output.
+- Native **1920 × 1080 at 30 FPS** video. The synthetic 1440p option has been removed.
 - Windows light/dark theme, with optional app overrides.
 - Optional NVIDIA RTX processing, an original Direct3D 11 bilateral filter, and adapters for seven research video denoisers.
 
-The tested camera does not expose manual sensor ISO or focus through the checked Windows interfaces. There is no software-gain control. 1440p output is an upscale from 1080p; it does not recover additional sensor detail.
+The tested camera does not expose manual sensor ISO or focus through the checked Windows interfaces. There is no software-gain control. The 5 MP sensor does not expose native 1440p or 5 MP video through the tested capture interfaces; see [native video modes](docs/native-video-modes.md).
 
 **Automatic exposure** enables the camera's own exposure algorithm, rather than a shutter-only controller in the app. Noise can change while FPS stays similar; an increase in internal gain is one possible cause, but this camera does not expose enough telemetry to verify its gain/ISO decisions. Turning off frame-rate priority permits a lower FPS in low light; it does not force a slower shutter.
 
@@ -94,7 +94,8 @@ Native regression checks cover pixel orientation, Media Foundation transforms, q
 - `--live-self-test <report.txt>` exercises live controls, preview, processing and recovery, restoring settings afterward.
 - `--model-self-test <report.txt>` measures installed research-model delivery, frame age and Off recovery.
 - `--exposure-self-test <report.txt>` checks auto exposure, live readback, stale-poll protection and immediate backlight slider delivery, restoring the tested settings afterward.
-- `--realtek-self-test <report.txt>` checks the active Realtek/Camnovo attachment, framing sliders and reset, effect delivery, Off recovery and preview restart, restoring settings afterward.
+- `--realtek-self-test <report.txt>` checks the active Realtek/Camnovo attachment, framing arrows, zoom and reset, effect delivery, Off recovery and preview restart, restoring settings afterward.
+- `--framing-self-test <report.txt>` checks directional buttons, limits, centring, keyboard navigation and native 1080p capture, restoring framing afterward.
 
 Live diagnostics require the camera and installed extension, and temporarily adjust settings. This is an unsigned prototype, not a production driver package or a general webcam installer.
 

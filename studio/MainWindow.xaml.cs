@@ -31,7 +31,7 @@ public partial class MainWindow : Window
     private ulong displayedSerial;
     private bool loading=true,running,originalHeld,closing,busy;
     private long renderCount;
-    private int appliedResolution;
+    private readonly Dictionary<string,ButtonBase> framingButtons=[];
     private bool hardwareLoaded;
     private bool pollingHardware;
     private long hardwareRevision;
@@ -58,15 +58,15 @@ public partial class MainWindow : Window
         BackendChoice.SelectedIndex=Math.Clamp(SettingsStore.Read("DenoiseBackend"),0,8);
         ModelSizeChoice.SelectedIndex=Array.IndexOf(ModelWidths,SettingsStore.Read("DenoiseModelWidth",640));if(ModelSizeChoice.SelectedIndex<0)ModelSizeChoice.SelectedIndex=3;
         ModelSizeChoice.SelectionChanged+=(_,_)=>{if(!loading){int width=ModelWidths[ModelSizeChoice.SelectedIndex];SettingsStore.Write("DenoiseModelWidth",width);SettingsStore.Write($"DenoiseModelWidth{BackendChoice.SelectedIndex}",width);Status("Model processing size updated. The 500 ms limit remains active.");}};
-        ResolutionChoice.SelectedIndex=appliedResolution=SettingsStore.Read("Enable1440p")==1?1:0;
-        bool writable=SettingsStore.Installed&&SettingsStore.Writable;MirrorToggle.IsEnabled=FlipToggle.IsEnabled=ResolutionChoice.IsEnabled=writable;
+        bool writable=SettingsStore.Installed&&SettingsStore.Writable;MirrorToggle.IsEnabled=FlipToggle.IsEnabled=writable;
+        // Retire synthetic 1440p output: the connected camera exposes 1080p video.
+        if(writable)SettingsStore.Write("Enable1440p",0);
         InitializeShadowControls();RefreshShadowAvailability(writable);
 
         BackendChoice.IsEnabled=writable;RefreshBackendAvailability();
         MirrorToggle.Checked+=OrientationChanged;MirrorToggle.Unchecked+=OrientationChanged;FlipToggle.Checked+=OrientationChanged;FlipToggle.Unchecked+=OrientationChanged;
         DenoiseChoice.SelectionChanged+=(_,_)=>SaveDenoise();
         BackendChoice.SelectionChanged+=(_,_)=>{int backend=BackendChoice.SelectedIndex;if(!loading&&backend>=2){int width=SettingsStore.Read($"DenoiseModelWidth{backend}",DefaultModelWidth(backend));loading=true;ModelSizeChoice.SelectedIndex=Math.Max(0,Array.IndexOf(ModelWidths,width));loading=false;SettingsStore.Write("DenoiseModelWidth",width);}RefreshBackendAvailability();SaveDenoise();};
-        ResolutionChoice.SelectionChanged+=async(_,_)=>{if(!loading)await ChangeResolution();};
         OriginalButton.PreviewMouseLeftButtonDown+=(_,e)=>{BeginOriginal();OriginalButton.CaptureMouse();e.Handled=true;};
         OriginalButton.PreviewMouseLeftButtonUp+=(_,e)=>{EndOriginal();OriginalButton.ReleaseMouseCapture();e.Handled=true;};
         OriginalButton.LostMouseCapture+=(_,_)=>EndOriginal();
@@ -79,7 +79,7 @@ public partial class MainWindow : Window
         RestartMenuItem.Click+=async(_,_)=>await RunSetup("--restart-camera");
         RestoreMenuItem.Click+=async(_,_)=>await RunSetup("--restore-engine");
         PresetChoice.SelectionChanged+=(_,_)=>{if(!loading&&PresetChoice.SelectedIndex>0)ApplyPreset(PresetChoice.SelectedItem?.ToString()??"");};
-        ResetEffectsButton.Click+=async(_,_)=>{loading=true;MirrorToggle.IsChecked=FlipToggle.IsChecked=ShadowCleanupToggle.IsChecked=false;ShadowStrengthSlider.Value=70;DenoiseChoice.SelectedIndex=0;ResolutionChoice.SelectedIndex=0;loading=false;OrientationChanged(null,null);SaveShadowCleanup();SaveDenoise();if(appliedResolution!=0)await ChangeResolution();};
+        ResetEffectsButton.Click+=(_,_)=>{loading=true;MirrorToggle.IsChecked=FlipToggle.IsChecked=ShadowCleanupToggle.IsChecked=false;ShadowStrengthSlider.Value=70;DenoiseChoice.SelectedIndex=0;loading=false;OrientationChanged(null,null);SaveShadowCleanup();SaveDenoise();};
         renderTimer.Tick+=(_,_)=>RenderLatest();
         controlsTimer.Tick+=async(_,_)=>await PollHardware();
         reconnectTimer.Tick+=async(_,_)=>{if(closing)return;UpdateEffectLabel();if(running&&bitmap is not null){CameraApi.PreviewStats(out double fps,out double age,out double copy);VideoInfo.Text=$"{bitmap.PixelWidth} × {bitmap.PixelHeight}  ·  {fps:0.0} fps";PerformanceInfo.Text=$"Frame age {age:0} ms  ·  Preview copy {copy:0.0} ms";}if(!running&&!busy)await StartPreview();};
@@ -114,8 +114,9 @@ public partial class MainWindow : Window
         hardwareLoaded=settings.Count>0;
         string provider=SettingsStore.DriverProvider;DriverInfo.Text=$"T24mv-30 webcam{(provider.Length>0?" · "+provider+" driver":"")} · Controls apply instantly";
         foreach(var spec in new[]{("Zoom",3),("Horizontal position",0),("Vertical position",1)}){
-            var setting=new CameraSetting(spec.Item1,1,spec.Item2);if(setting.Read()&&setting.Max>setting.Min&&(setting.Caps&2)!=0){settings[(1,spec.Item2)]=setting;AddSetting(setting,FramingControls);FramingTab.Visibility=Visibility.Visible;}
+            var setting=new CameraSetting(spec.Item1,1,spec.Item2);if(setting.Read()&&setting.Max>setting.Min&&(setting.Caps&2)!=0){settings[(1,spec.Item2)]=setting;if(spec.Item2==3)AddSetting(setting,FramingControls);FramingTab.Visibility=Visibility.Visible;}
         }
+        AddPositionPad();
         if(FramingTab.Visibility==Visibility.Visible){var reset=new Button{Content="Reset framing",HorizontalAlignment=HorizontalAlignment.Left,Padding=new Thickness(14,8,14,8)};reset.Click+=(_,_)=>{try{foreach(var item in settings.Values.Where(s=>s.Group==1&&s.Property is 0 or 1 or 3)){SetHardware(item,item.Default,2);refresh[item]();}Status("Framing reset.");}catch(Exception e){Status(e.Message,true);}};FramingControls.Children.Add(reset);}
         if(settings.TryGetValue((1,4),out var exposure)){
             var row=new WrapPanel{Margin=new Thickness(0,2,0,15)};
@@ -129,6 +130,35 @@ public partial class MainWindow : Window
         }
         ExposureControls.Children.Add(Text("Longer shutter times can blur motion and add camera delay. Manual shutter values are shown as fractions of a second.",true));
         if(!hardwareLoaded)ImageControls.Children.Add(Text("Connect the Lenovo webcam and reopen the app.",true));
+    }
+    private void AddPositionPad()
+    {
+        settings.TryGetValue((1,0),out var pan);settings.TryGetValue((1,1),out var tilt);
+        if(pan is null&&tilt is null)return;
+        var row=new StackPanel{Margin=new Thickness(0,0,0,22)};
+        row.Children.Add(Text("Position"));
+        var pad=new Grid{Width=180,Height=180,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,12,0,8),Focusable=true};
+        AutomationProperties.SetName(pad,"Camera position. Use arrow keys to move; Home to centre.");
+        for(int i=0;i<3;i++){pad.RowDefinitions.Add(new RowDefinition());pad.ColumnDefinitions.Add(new ColumnDefinition());}
+        var value=Text("",true);value.HorizontalAlignment=HorizontalAlignment.Center;
+        void Move(CameraSetting? axis,int direction){if(axis is null)return;try{if(!axis.Read())throw new InvalidOperationException("Camera position is unavailable.");int next=axis.Snap(axis.Value+direction*Math.Max(1,axis.Step));if(next!=axis.Value)SetHardware(axis,next,2);RefreshPad();}catch(Exception error){Status(error.Message,true);}}
+        void Centre(){try{foreach(var axis in new[]{pan,tilt})if(axis is not null)SetHardware(axis,axis.Default,2);RefreshPad();Status("Camera position centred.");}catch(Exception error){Status(error.Message,true);}}
+        void Add(string name,string glyph,int y,int x,Action action){
+            ButtonBase button=name=="Centre"?new Button():new RepeatButton{Delay=350,Interval=120};
+            button.Content=glyph;button.FontSize=22;button.Width=54;button.Height=54;button.Padding=new Thickness(0);button.Margin=new Thickness(3);button.ToolTip=name=="Centre"?"Centre position (Home)":$"Move {name.ToLowerInvariant()} · hold to keep moving";
+            AutomationProperties.SetName(button,name=="Centre"?"Centre camera position":$"Move camera {name.ToLowerInvariant()}");
+            button.Click+=(_,_)=>action();Grid.SetRow(button,y);Grid.SetColumn(button,x);pad.Children.Add(button);framingButtons[name]=button;
+        }
+        Add("Up","▲",0,1,()=>Move(tilt,1));Add("Left","◀",1,0,()=>Move(pan,-1));Add("Centre","◎",1,1,Centre);Add("Right","▶",1,2,()=>Move(pan,1));Add("Down","▼",2,1,()=>Move(tilt,-1));
+        pad.PreviewKeyDown+=(_,e)=>{switch(e.Key){case Key.Left:Move(pan,-1);break;case Key.Right:Move(pan,1);break;case Key.Up:Move(tilt,1);break;case Key.Down:Move(tilt,-1);break;case Key.Home:Centre();break;default:return;}e.Handled=true;};
+        void RefreshPad(){
+            if(pan is not null)pan.Read();if(tilt is not null)tilt.Read();
+            framingButtons["Left"].IsEnabled=pan is not null&&pan.Value>pan.Min;framingButtons["Right"].IsEnabled=pan is not null&&pan.Value<pan.Max;
+            framingButtons["Up"].IsEnabled=tilt is not null&&tilt.Value<tilt.Max;framingButtons["Down"].IsEnabled=tilt is not null&&tilt.Value>tilt.Min;
+            value.Text=string.Join("  ·  ",new[]{pan is null?null:$"Horizontal: {pan.Display(pan.Value)}",tilt is null?null:$"Vertical: {tilt.Display(tilt.Value)}"}.Where(s=>s is not null));
+        }
+        foreach(var axis in new[]{pan,tilt})if(axis is not null){refresh[axis]=RefreshPad;present[axis]=RefreshPad;canRefresh[axis]=()=>true;}
+        row.Children.Add(pad);row.Children.Add(value);var hint=Text("Click an arrow to move, or hold to keep moving. The centre button resets position. Zoom in to reframe within the image.",true);hint.Margin=new Thickness(0,10,0,0);row.Children.Add(hint);FramingControls.Children.Add(row);RefreshPad();
     }
     private void AddSetting(CameraSetting setting,Panel parent)
     {
@@ -244,7 +274,7 @@ public partial class MainWindow : Window
     private void EndOriginal(){if(!originalHeld)return;try{SettingsStore.Write("DenoiseLevel",DenoiseChoice.SelectedIndex);SettingsStore.Write("ShadowCleanupEnabled",ShadowCleanupToggle.IsChecked==true?1:0);originalHeld=false;OriginalButton.Content="Hold original";UpdateEffectLabel();}catch(Exception e){Status(e.Message,true);}}
     private async Task StartPreview()
     {
-        if(busy||running||closing)return;busy=true;try{int width=ResolutionChoice.SelectedIndex==1?2560:1920,height=ResolutionChoice.SelectedIndex==1?1440:1080;await Task.Run(()=>CameraApi.Check(CameraApi.PreviewStartSized(width,height)));if(closing)return;displayedSerial=0;running=true;LiveBadge.Text="LIVE";renderTimer.Start();UpdateEffectLabel();Status("Live preview. All controls apply automatically.");}catch(Exception e){running=false;LiveBadge.Text="RECONNECTING";Status($"{e.Message} Retrying automatically.",true);}finally{busy=false;}
+        if(busy||running||closing)return;busy=true;try{int width=1920,height=1080;await Task.Run(()=>CameraApi.Check(CameraApi.PreviewStartSized(width,height)));if(closing)return;displayedSerial=0;running=true;LiveBadge.Text="LIVE";renderTimer.Start();UpdateEffectLabel();Status("Live preview. All controls apply automatically.");}catch(Exception e){running=false;LiveBadge.Text="RECONNECTING";Status($"{e.Message} Retrying automatically.",true);}finally{busy=false;}
     }
     private async Task StopPreview()
     {
@@ -260,7 +290,7 @@ public partial class MainWindow : Window
             if(!bitmap.TryLock(new Duration(TimeSpan.Zero)))return;
             try{CameraApi.Check(CameraApi.PreviewCopy(bitmap.BackBuffer,width,height,bitmap.BackBufferStride,ref displayedSerial));bitmap.AddDirtyRect(new Int32Rect(0,0,width,height));}finally{bitmap.Unlock();}
             renderCount++;PreviewPlaceholder.Visibility=Visibility.Collapsed;
-            if(first&&width!=(ResolutionChoice.SelectedIndex==1?2560:1920))Status($"Preview is {width} × {height}. To load the selected output, choose Camera → Restart camera.");
+            if(first&&(width!=1920||height!=1080))Status($"Preview is {width} × {height}. To load the selected output, choose Camera → Restart camera.");
             if(renderCount%8==0){CameraApi.PreviewStats(out double fps,out double age,out double copy);VideoInfo.Text=$"{width} × {height}  ·  {fps:0.0} fps";PerformanceInfo.Text=age is >=0 and <10000?$"Frame age {age:0} ms  ·  Preview copy {copy:0.0} ms":$"Preview copy {copy:0.0} ms";UpdateEffectLabel();}
         }catch(Exception e){renderTimer.Stop();running=false;LiveBadge.Text="RECONNECTING";CameraApi.PreviewStop();Status($"{e.Message} Retrying automatically.",true);}
     }
@@ -270,11 +300,6 @@ public partial class MainWindow : Window
         PreviewScroll.HorizontalScrollBarVisibility=PreviewScroll.VerticalScrollBarVisibility=fit?ScrollBarVisibility.Disabled:ScrollBarVisibility.Auto;
         if(fit){PreviewImage.Width=PreviewImage.Height=PreviewCanvas.Width=PreviewCanvas.Height=double.NaN;PreviewImage.Stretch=Stretch.Uniform;PreviewScroll.ScrollToHome();}
         else{var dpi=VisualTreeHelper.GetDpi(this);double scale=ZoomChoice.SelectedIndex;PreviewCanvas.Width=PreviewImage.Width=bitmap!.PixelWidth*scale/dpi.DpiScaleX;PreviewCanvas.Height=PreviewImage.Height=bitmap.PixelHeight*scale/dpi.DpiScaleY;PreviewImage.Stretch=Stretch.Fill;}
-    }
-    private async Task ChangeResolution()
-    {
-        if(busy)return;int chosen=ResolutionChoice.SelectedIndex;bool resume=running;
-        try{SettingsStore.Write("Enable1440p",chosen);if(resume)await StopPreview();else CameraApi.CameraClose();appliedResolution=chosen;if(resume)await StartPreview();Status("Output preference saved. If the size stays unchanged, choose Camera → Restart camera.");}catch(Exception e){Status(e.Message,true);}
     }
     private async Task RunSetup(string operation)
     {
@@ -287,7 +312,7 @@ public partial class MainWindow : Window
             if(operation=="--install-engine")start.ArgumentList.Add(System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value);
             using var process=Process.Start(start)??throw new InvalidOperationException("Camera setup did not start.");await process.WaitForExitAsync();
             if(process.ExitCode!=0)throw new InvalidOperationException("Camera setup failed. See engine-setup-result.txt in the app folder for details.");
-            bool writable=SettingsStore.Installed&&SettingsStore.Writable;MirrorToggle.IsEnabled=FlipToggle.IsEnabled=ResolutionChoice.IsEnabled=BackendChoice.IsEnabled=writable;RefreshBackendAvailability();RefreshShadowAvailability(writable);
+            bool writable=SettingsStore.Installed&&SettingsStore.Writable;MirrorToggle.IsEnabled=FlipToggle.IsEnabled=BackendChoice.IsEnabled=writable;RefreshBackendAvailability();RefreshShadowAvailability(writable);
             Status("Camera setup completed. Preview reconnects automatically.");
         }catch(System.ComponentModel.Win32Exception e)when(e.NativeErrorCode==1223){Status("Camera setup cancelled.");}catch(Exception e){Status(e.Message,true);}finally{busy=false;CameraMenuButton.IsEnabled=SettingsTabs.IsEnabled=DefaultsButton.IsEnabled=true;}
         if(resume)await StartPreview();
@@ -343,8 +368,8 @@ public partial class MainWindow : Window
             Width=1420;Height=900;await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);UpdateLayout();if(PreviewCanvas.ActualWidth<narrow+100||PreviewScroll.ExtentWidth>PreviewScroll.ViewportWidth+1||PreviewScroll.ExtentHeight>PreviewScroll.ViewportHeight+1)throw new Exception("Fit did not track resize.");
             ZoomChoice.SelectedIndex=1;LayoutPreview();if(bitmap is null||double.IsNaN(PreviewCanvas.Width))throw new Exception("100% zoom lost pixel size.");ZoomChoice.SelectedIndex=0;LayoutPreview();if(!double.IsNaN(PreviewCanvas.Width))throw new Exception("Fit retained fixed pixel size.");Width=1260;Height=820;log.Add("PASS: Fit follows smaller/larger window dimensions, has no overflow, and resets correctly after 100% zoom.");
             DenoiseChoice.SelectedIndex=0;await WaitFrames(40);
-            foreach(var item in settings.Values){refresh[item]();int target=item.Value+Math.Max(1,item.Step);if(target>item.Max)target=item.Value-Math.Max(1,item.Step);var slider=sliders[item];slider.Value=(item.Snap(target)-item.Min)/(double)Math.Max(1,item.Step);slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice,0,MouseButton.Left){RoutedEvent=Mouse.PreviewMouseUpEvent});if(!item.Read()||item.Value!=item.Snap(target)||item.Mode!=2)throw new Exception($"Release event did not commit {item.Name}.");}
-            log.Add($"PASS: all {settings.Count} hardware slider release handlers committed and read back from the live preview source.");
+            foreach(var item in sliders.Keys){refresh[item]();int target=item.Value+Math.Max(1,item.Step);if(target>item.Max)target=item.Value-Math.Max(1,item.Step);var slider=sliders[item];slider.Value=(item.Snap(target)-item.Min)/(double)Math.Max(1,item.Step);slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice,0,MouseButton.Left){RoutedEvent=Mouse.PreviewMouseUpEvent});if(!item.Read()||item.Value!=item.Snap(target)||item.Mode!=2)throw new Exception($"Release event did not commit {item.Name}.");}
+            log.Add($"PASS: all {sliders.Count} hardware slider release handlers committed and read back from the live preview source.");
             var brightness=settings[(0,0)];SetHardware(brightness,brightness.Min,2);await WaitFrames(20);double dark=PresentedLuma();SetHardware(brightness,brightness.Max,2);await WaitFrames(20);double light=PresentedLuma();if(light-dark<25)throw new Exception($"Presented pixels did not follow brightness: {dark:0.0} → {light:0.0}.");log.Add($"PASS: actual WPF image pixels changed with brightness: mean luma {dark:0.0} → {light:0.0}.");
             foreach(var item in originalSettings){SetHardware(item.Key,item.Value.Value,item.Value.Mode);refresh[item.Key]();}
             DenoiseChoice.SelectedIndex=1;if(SettingsStore.Read("DenoiseLevel")!=1)throw new Exception("Immediate denoise update failed.");await WaitFrames(120);

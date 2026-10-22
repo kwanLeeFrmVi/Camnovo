@@ -2,11 +2,46 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Controls.Primitives;
 
 namespace LenovoCameraStudio;
 
 public partial class MainWindow
 {
+    internal async Task FramingLiveTests(string path)
+    {
+        ShowInTaskbar=false;Opacity=0;Show();var log=new List<string>();
+        var original=settings.Values.Where(s=>s.Group==1&&s.Property is 0 or 1 or 3&&s.Read()).ToDictionary(s=>s,s=>(s.Value,s.Mode));
+        try{
+            var pan=settings[(1,0)];var tilt=settings[(1,1)];var zoom=settings[(1,3)];
+            var deadline=DateTime.UtcNow.AddSeconds(15);while(!running&&DateTime.UtcNow<deadline)await Task.Delay(50);
+            if(!running)throw new Exception("Preview failed to start.");await WaitFrames(15);
+            if(bitmap?.PixelWidth!=1920||bitmap.PixelHeight!=1080||SettingsStore.Read("Enable1440p")!=0)throw new Exception("Native-only output migration failed.");
+            if(sliders.ContainsKey(pan)||sliders.ContainsKey(tilt))throw new Exception("Position sliders remain.");
+            SetHardware(zoom,zoom.Snap(200),2);refresh[zoom]();
+            void Click(string name){if(!framingButtons[name].IsEnabled)throw new Exception(name+" unexpectedly disabled.");framingButtons[name].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));}
+            void Verify(CameraSetting axis,int expected){if(!axis.Read()||axis.Value!=expected||axis.Mode!=2)throw new Exception("Position readback mismatch: "+axis.Name);}
+            Click("Centre");
+            foreach(var item in new[]{("Right",pan,1),("Left",pan,-1),("Up",tilt,1),("Down",tilt,-1)}){
+                item.Item2.Read();int expected=item.Item2.Snap(item.Item2.Value+item.Item3*item.Item2.Step);Click(item.Item1);Verify(item.Item2,expected);await WaitFrames(3);
+            }
+            log.Add("PASS: all four arrow buttons apply one driver step immediately, with exact readback and continuing preview.");
+            for(int i=0;i<3;i++)Click("Right");Verify(pan,pan.Default+3*pan.Step);
+            log.Add("PASS: repeated arrow clicks (the held RepeatButton action) move successive steps.");
+            SetHardware(pan,pan.Max,2);refresh[pan]();if(framingButtons["Right"].IsEnabled||!framingButtons["Left"].IsEnabled)throw new Exception("Right boundary failed.");
+            SetHardware(tilt,tilt.Min,2);refresh[tilt]();if(framingButtons["Down"].IsEnabled||!framingButtons["Up"].IsEnabled)throw new Exception("Bottom boundary failed.");
+            SetHardware(pan,pan.Min,2);refresh[pan]();if(framingButtons["Left"].IsEnabled)throw new Exception("Left boundary failed.");
+            SetHardware(tilt,tilt.Max,2);refresh[tilt]();if(framingButtons["Up"].IsEnabled)throw new Exception("Top boundary failed.");
+            Click("Centre");Verify(pan,pan.Default);Verify(tilt,tilt.Default);Verify(zoom,zoom.Snap(200));
+            log.Add("PASS: all limits disable the corresponding arrow; Centre restores position while preserving zoom.");
+            var pad=(Grid)framingButtons["Centre"].Parent;
+            pad.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,PresentationSource.FromVisual(this)!,0,Key.Right){RoutedEvent=Keyboard.PreviewKeyDownEvent});Verify(pan,pan.Default+pan.Step);
+            pad.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,PresentationSource.FromVisual(this)!,0,Key.Home){RoutedEvent=Keyboard.PreviewKeyDownEvent});Verify(pan,pan.Default);
+            log.Add("PASS: keyboard Right and Home apply movement and centring.");await WaitFrames(10);
+            log.Add("PASS: native 1920x1080 preview; synthetic 1440p preference disabled.");
+        }catch(Exception error){log.Add("FAIL: "+error);throw;}
+        finally{foreach(var item in original)try{SetHardware(item.Key,item.Value.Value,item.Value.Mode);}catch(Exception e){log.Add("RESTORE: "+e.Message);}File.WriteAllLines(path,log);Close();}
+    }
     internal async Task RealtekLiveTests(string path)
     {
         ShowInTaskbar=false;Opacity=0;Show();var log=new List<string>();
@@ -25,11 +60,11 @@ public partial class MainWindow
             await WaitFrames(40);var baseline=await SamplePerformance();
             log.Add($"PASS: active Realtek driver + Camnovo attachment; preview {bitmap!.PixelWidth}x{bitmap.PixelHeight}, {baseline.Fps:0.0} fps, median sample age {baseline.Age:0} ms.");
             foreach(var target in new[]{(3,200),(0,8),(1,-8)}){
-                var setting=settings[(1,target.Item1)];int value=setting.Snap(target.Item2);var slider=sliders[setting];
-                slider.Value=(value-setting.Min)/(double)Math.Max(1,setting.Step);
-                slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice,0,MouseButton.Left){RoutedEvent=Mouse.PreviewMouseUpEvent});
-                if(!setting.Read()||setting.Value!=value||setting.Mode!=2)throw new Exception("Framing slider did not apply on release: "+setting.Name);
-                await WaitFrames(12);log.Add($"PASS: {setting.Name} slider release: {setting.Display(value)}, exact driver readback and continuing preview.");
+                var setting=settings[(1,target.Item1)];int value=setting.Snap(target.Item2);
+                if(target.Item1==3){var slider=sliders[setting];slider.Value=(value-setting.Min)/(double)Math.Max(1,setting.Step);slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice,0,MouseButton.Left){RoutedEvent=Mouse.PreviewMouseUpEvent});}
+                else {framingButtons["Centre"].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));string direction=target.Item1==0?(value>setting.Default?"Right":"Left"):(value>setting.Default?"Up":"Down");for(int i=0;i<Math.Abs(value-setting.Default)/Math.Max(1,setting.Step);i++)framingButtons[direction].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));}
+                if(!setting.Read()||setting.Value!=value||setting.Mode!=2)throw new Exception("Framing control did not apply: "+setting.Name);
+                await WaitFrames(12);log.Add($"PASS: {setting.Name}: {setting.Display(value)}, exact driver readback and continuing preview.");
             }
             FramingControls.Children.OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             foreach(int property in new[]{0,1,3}){var setting=settings[(1,property)];if(!setting.Read()||setting.Value!=setting.Default)throw new Exception("Framing reset failed.");}

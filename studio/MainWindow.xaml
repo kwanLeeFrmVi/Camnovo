@@ -42,8 +42,8 @@
             <Separator Margin="0,0,0,18"/><TextBlock Text="Orientation" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,14"/>
             <CheckBox x:Name="MirrorToggle" Content="Mirror left / right" Margin="0,0,0,13"/><CheckBox x:Name="FlipToggle" Content="Flip upside down" Margin="0,0,0,20"/>
             <Separator Margin="0,0,0,18"/><TextBlock Text="Video output" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12"/>
-            <ComboBox x:Name="ResolutionChoice" SelectedIndex="0"><ComboBoxItem Content="1920 × 1080 · Native"/><ComboBoxItem Content="2560 × 1440 · Upscaled"/></ComboBox>
-            <TextBlock Text="1080p avoids the extra resizing step. Choose the same output size in your video-call app." Style="{StaticResource Muted}" Margin="0,10,0,20"/>
+            <TextBlock Text="1920 × 1080 · Native video" FontWeight="SemiBold"/>
+            <TextBlock Text="This webcam exposes up to 1080p video. Its 5 MP sensor does not expose a native 1440p video mode." Style="{StaticResource Muted}" Margin="0,10,0,20"/>
             <Button x:Name="ResetEffectsButton" Content="Reset effects" HorizontalAlignment="Left" Padding="14,8"/>
           </StackPanel></ScrollViewer></TabItem>
           <TabItem x:Name="FramingTab" Header="Framing" Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="FramingControls" Margin="14,18,14,12"><TextBlock Text="Zoom and reframe" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Digital framing from the camera driver. Zooming in crops the image; it does not add detail." Style="{StaticResource Muted}" Margin="0,6,0,18"/></StackPanel></ScrollViewer></TabItem>
@@ -53,5 +53,3 @@
     <Grid Grid.Row="2" Margin="0,15,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="StatusText" Text="Ready. Settings apply automatically." Style="{StaticResource Muted}" VerticalAlignment="Center"/><Button x:Name="DefaultsButton" Grid.Column="1" Content="Camera defaults" Padding="14,7"/></Grid>
   </Grid>
 </Window>
-
-
