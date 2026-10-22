@@ -2,7 +2,7 @@
 
 A new view for your Lenovo webcam.
 
-Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.8**.
+Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.9**.
 
 This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, preserves the camera's existing identity and leaves the IR interface alone. It uses the Microsoft USB Video base driver, optionally with Realtek's extension. Compatibility with other webcams has not been established.
 
@@ -21,6 +21,7 @@ Version 0.8.7 supports Realtek-first processing and a **Framing** tab with digit
 - Automatic neural processing size: starts at a live profile within the selected maximum and reduces size when results exceed the latency budget. Smaller sizes lose detail. Turn automatic sizing off to use a fixed size.
 - Delivery status confirms actual filtered output and explicitly identifies original video during loading, errors and lateness. Filtering can recover after a prolonged fallback without changing the selected effect.
 - Consistent selection of the RGB camera interface carrying both Realtek and Camnovo processing; installation detection checks the interface actually opened.
+- Measured detail/noise ranking in **Effects → Compare denoisers**, ordered model choices and one-click tested settings. Only profiles that passed actual filtered delivery and measured maximum age below 500 ms are ranked. See the [comparison method and limitations](docs/denoiser-comparison.md).
 - Windows light/dark theme, with optional app overrides.
 - Optional NVIDIA RTX processing, an original Direct3D 11 bilateral filter, and adapters for seven research video denoisers.
 

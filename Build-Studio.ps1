@@ -25,4 +25,5 @@ Copy-Item "$PSScriptRoot\model-performance.md","$PSScriptRoot\model-provenance.j
 New-Item -ItemType Directory -Path "$destination\docs" -Force | Out-Null
 Copy-Item "$PSScriptRoot\docs\realtek-webcam-driver.md" "$destination\docs" -Force
 Copy-Item "$PSScriptRoot\docs\native-video-modes.md","$PSScriptRoot\docs\denoiser-delivery.md" "$destination\docs" -Force
+if(Test-Path "$PSScriptRoot\docs\denoiser-comparison.md"){Copy-Item "$PSScriptRoot\docs\denoiser-comparison.md" "$destination\docs" -Force}
 Write-Host "Fluent Windows app built: $destination\LenovoCameraControls.exe"

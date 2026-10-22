@@ -46,7 +46,7 @@ public partial class MainWindow
     {
         ShowInTaskbar=false;Opacity=0;Show();var log=new List<string>();
         var original=settings.Values.Where(s=>s.Read()).ToDictionary(s=>s,s=>(s.Value,s.Mode));
-        int oldFlags=SettingsStore.Read("FlipFlags"),oldLevel=DenoiseChoice.SelectedIndex,oldBackend=BackendChoice.SelectedIndex;
+        int oldFlags=SettingsStore.Read("FlipFlags"),oldLevel=DenoiseChoice.SelectedIndex,oldBackend=SelectedBackend;
         int oldShadow=SettingsStore.Read("ShadowCleanupEnabled"),oldWidth=SettingsStore.Read("DenoiseModelWidth",640);
         int oldFastWidth=SettingsStore.Read("DenoiseModelWidth2",640);
         try{
@@ -73,16 +73,16 @@ public partial class MainWindow
             MirrorToggle.IsChecked=!MirrorToggle.IsChecked;FlipToggle.IsChecked=!FlipToggle.IsChecked;
             if(SettingsStore.Read("FlipFlags")!=((MirrorToggle.IsChecked==true?1:0)|(FlipToggle.IsChecked==true?2:0)))throw new Exception("Immediate orientation settings failed.");
             await WaitFrames(20);log.Add("PASS: immediate mirror/flip preferences and continuing chained preview; native installer trace separately verifies orientation delivery.");
-            BackendChoice.SelectedIndex=0;DenoiseChoice.SelectedIndex=1;
+            SelectedBackend=0;DenoiseChoice.SelectedIndex=1;
             await WaitFrames(65);await VerifyFilteredDelivery("Realtek + RTX Low",log);
             DenoiseChoice.SelectedIndex=0;await WaitFrames(40);var recovered=await SamplePerformance();
             if(recovered.Fps<baseline.Fps*.8||recovered.Age>baseline.Age+200)throw new Exception("RTX Off did not recover toward the unfiltered baseline.");
             log.Add($"PASS: RTX Off recovery: {recovered.Fps:0.0} fps, median sample age {recovered.Age:0} ms.");
-            BackendChoice.SelectedIndex=1;DenoiseChoice.SelectedIndex=2;
+            SelectedBackend=1;DenoiseChoice.SelectedIndex=2;
             await WaitFrames(65);await VerifyFilteredDelivery("Realtek + Bilateral GPU",log);
             DenoiseChoice.SelectedIndex=0;
             if(ModelHost.Available(2)){
-                BackendChoice.SelectedIndex=2;ModelSizeChoice.SelectedIndex=3;DenoiseChoice.SelectedIndex=1;
+                SelectedBackend=2;ModelSizeChoice.SelectedIndex=3;DenoiseChoice.SelectedIndex=1;
                 var warmDeadline=DateTime.UtcNow.AddSeconds(45);bool filtered=false;
                 while(DateTime.UtcNow<warmDeadline){await Task.Delay(100);var state=SettingsStore.Backend();if(state.Fresh&&state.Kind==2&&state.Level==1&&state.Filtered>=5&&state.Result==0){filtered=true;break;}}
                 if(!filtered)throw new Exception("FastDVDnet did not finish loading: "+modelHost.Message);

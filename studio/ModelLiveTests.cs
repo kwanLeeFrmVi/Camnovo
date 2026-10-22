@@ -20,7 +20,7 @@ public partial class MainWindow
               if(only!=0&&b!=only)continue;
               try{
                 if(!ModelHost.Available(b))throw new Exception($"{ModelHost.Names[b]} model is missing.");
-                BackendChoice.SelectedIndex=b;int modelWidth=everyday?1920:DefaultModelWidth(b);ModelSizeChoice.SelectedIndex=Array.IndexOf(ModelWidths,modelWidth);SettingsStore.Write("DenoiseModelWidth",modelWidth);DenoiseChoice.SelectedIndex=3;
+                SelectedBackend=b;int modelWidth=everyday?1920:DefaultModelWidth(b);ModelSizeChoice.SelectedIndex=Array.IndexOf(ModelWidths,modelWidth);SettingsStore.Write("DenoiseModelWidth",modelWidth);DenoiseChoice.SelectedIndex=3;
                 var deadline=DateTime.UtcNow.AddSeconds(45);bool active=false;
                 while(DateTime.UtcNow<deadline){await Task.Delay(100);var state=SettingsStore.Backend();if(state.Fresh&&state.Kind==b&&state.Level==3&&state.Filtered>=5){active=true;break;}}
                 if(!active)throw new Exception($"{ModelHost.Names[b]} did not deliver filtered frames. {modelHost.Message}");

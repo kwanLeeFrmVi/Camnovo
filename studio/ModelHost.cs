@@ -11,7 +11,7 @@ internal sealed class ModelHost : IDisposable
     internal sealed record RuntimeStatus(string Phase,string Message,int Width=0,double OutputAge=0,string Error="",double SourceAge=0);
     internal static readonly string[] Names=["NVIDIA RTX","Bilateral GPU","FastDVDnet","ASwin","ViDeNN","FlowDenoise","UDVD","ShiftNet Small","PVDD sRGB"];
     internal static readonly string[] Descriptions=[
-        "RTX denoising + edge-aware GPU colour-noise cleanup. Original frames continue during model warm-up.",
+        "RTX image restoration with edge-aware GPU colour-noise cleanup at native resolution. Original frames continue during warm-up.",
         "Custom MIT-licensed spatial bilateral filter. Direct3D 11 on AMD, Intel or NVIDIA. No trained model or temporal history.",
         "Five-frame neural video denoiser, without optical flow. Uses the official clipped-noise model. Two future frames add capture delay. MIT license.",
         "Six-frame attention model with official real-noise weights. Uses its latest-frame prediction to avoid future-frame delay. CC BY-NC 4.0: non-commercial use only.",

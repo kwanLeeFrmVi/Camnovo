@@ -1,5 +1,7 @@
 # Live model measurements
 
+For the newer detail/noise ranking and its selected profiles, see the [Camnovo 0.8.9 comparison](docs/denoiser-comparison.md). The table below records the earlier 0.8.8 automatic-sizing run.
+
 Measured on 22 October 2026 with the installed Camnovo 0.8.8 engine, Realtek 10.0.22000.20256 and an RTX 3080 Ti. Actual 1080p Lenovo camera pipeline, existing automatic exposure; High strength, automatic processing size with a 1920 px maximum. Reduced model inputs are resized to native camera output. Results are short-run diagnostics, not a quality ranking or calibrated glass-to-glass latency.
 
 | Backend | Processing width | Output FPS | Median / P95 / max age (ms) |

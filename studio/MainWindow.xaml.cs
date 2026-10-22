@@ -54,15 +54,15 @@ public partial class MainWindow : Window
 
     public MainWindow(bool autoPreview=true)
     {
-        InitializeComponent();ApplyPalette();
+        InitializeComponent();ApplyPalette();InitializeRanking();
         ThemeChoice.SelectionChanged+=(_,_)=>ApplyPalette();
         SystemEvents.UserPreferenceChanged+=OnWindowsThemeChanged;
         LoadHardware();LoadPresets();
         int flags=SettingsStore.Read("FlipFlags");MirrorToggle.IsChecked=(flags&1)!=0;FlipToggle.IsChecked=(flags&2)!=0;
         DenoiseChoice.SelectedIndex=Math.Clamp(SettingsStore.Read("DenoiseLevel"),0,4);
-        BackendChoice.SelectedIndex=Math.Clamp(SettingsStore.Read("DenoiseBackend"),0,8);
+        SelectedBackend=Math.Clamp(SettingsStore.Read("DenoiseBackend"),0,8);
         ModelSizeChoice.SelectedIndex=Array.IndexOf(ModelWidths,SettingsStore.Read("DenoiseModelWidth",640));if(ModelSizeChoice.SelectedIndex<0)ModelSizeChoice.SelectedIndex=3;
-        ModelSizeChoice.SelectionChanged+=(_,_)=>{if(!loading){int width=ModelWidths[ModelSizeChoice.SelectedIndex];SettingsStore.Write("DenoiseModelWidth",width);SettingsStore.Write($"DenoiseModelWidth{BackendChoice.SelectedIndex}",width);SchedulePreviewRecovery();Status("Model processing size updated. The 500 ms limit remains active.");}};
+        ModelSizeChoice.SelectionChanged+=(_,_)=>{if(!loading){int width=ModelWidths[ModelSizeChoice.SelectedIndex];SettingsStore.Write("DenoiseModelWidth",width);SettingsStore.Write($"DenoiseModelWidth{SelectedBackend}",width);SchedulePreviewRecovery();Status("Model processing size updated. The 500 ms limit remains active.");}};
         AutoModelSizeToggle.IsChecked=SettingsStore.Read("DenoiseAutoSize",1)!=0;
         void SaveAutoSize(){ModelSizeLabel.Text=AutoModelSizeToggle.IsChecked==true?"Maximum processing size":"Fixed processing size";if(!loading)try{SettingsStore.Write("DenoiseAutoSize",AutoModelSizeToggle.IsChecked==true?1:0);SchedulePreviewRecovery();Status("Model sizing updated. Smaller processing sizes lose detail.");}catch(Exception e){Status(e.Message,true);}}
         AutoModelSizeToggle.Checked+=(_,_)=>SaveAutoSize();AutoModelSizeToggle.Unchecked+=(_,_)=>SaveAutoSize();SaveAutoSize();
@@ -74,7 +74,7 @@ public partial class MainWindow : Window
         BackendChoice.IsEnabled=writable;RefreshBackendAvailability();
         MirrorToggle.Checked+=OrientationChanged;MirrorToggle.Unchecked+=OrientationChanged;FlipToggle.Checked+=OrientationChanged;FlipToggle.Unchecked+=OrientationChanged;
         DenoiseChoice.SelectionChanged+=(_,_)=>SaveDenoise();
-        BackendChoice.SelectionChanged+=(_,_)=>{int backend=BackendChoice.SelectedIndex;if(!loading&&backend>=2){int width=SettingsStore.Read($"DenoiseModelWidth{backend}",DefaultModelWidth(backend));loading=true;ModelSizeChoice.SelectedIndex=Math.Max(0,Array.IndexOf(ModelWidths,width));loading=false;SettingsStore.Write("DenoiseModelWidth",width);}RefreshBackendAvailability();SaveDenoise();};
+        BackendChoice.SelectionChanged+=(_,_)=>{int backend=SelectedBackend;if(!loading&&backend>=2){int width=SettingsStore.Read($"DenoiseModelWidth{backend}",DefaultModelWidth(backend));loading=true;ModelSizeChoice.SelectedIndex=Math.Max(0,Array.IndexOf(ModelWidths,width));loading=false;SettingsStore.Write("DenoiseModelWidth",width);}RefreshBackendAvailability();SaveDenoise();};
         OriginalButton.PreviewMouseLeftButtonDown+=(_,e)=>{BeginOriginal();OriginalButton.CaptureMouse();e.Handled=true;};
         OriginalButton.PreviewMouseLeftButtonUp+=(_,e)=>{EndOriginal();OriginalButton.ReleaseMouseCapture();e.Handled=true;};
         OriginalButton.LostMouseCapture+=(_,_)=>EndOriginal();
@@ -98,7 +98,7 @@ public partial class MainWindow : Window
             ContentRendered+=firstPaint;
         }
         Closing+=(_,_)=>{closing=true;EndOriginal();modelHost.Dispose();renderTimer.Stop();reconnectTimer.Stop();controlsTimer.Stop();SystemEvents.UserPreferenceChanged-=OnWindowsThemeChanged;lock(hardwarePollGate)CameraApi.CameraClose();};
-        loading=false;if(autoPreview&&BackendChoice.SelectedIndex>=2&&DenoiseChoice.SelectedIndex>0)try{modelHost.Start();}catch(Exception error){Status(error.Message,true);}UpdateEffectLabel();if(!writable)Status("Choose Camera → Install / update camera processing to enable effects.");
+        loading=false;if(autoPreview&&SelectedBackend>=2&&DenoiseChoice.SelectedIndex>0)try{modelHost.Start();}catch(Exception error){Status(error.Message,true);}UpdateEffectLabel();if(!writable)Status("Choose Camera → Install / update camera processing to enable effects.");
     }
     private void OnWindowsThemeChanged(object sender,UserPreferenceChangedEventArgs e)=>Dispatcher.BeginInvoke(ApplyPalette);
     private void ApplyPalette()
@@ -232,7 +232,7 @@ public partial class MainWindow : Window
     }
     private void SaveDenoise()
     {
-        if(loading)return;try{denoiseSelectionTick=Environment.TickCount64;lastFilterProgressTick=0;observedMode=(-1,-1);if(BackendChoice.SelectedIndex>=2&&DenoiseChoice.SelectedIndex>0)modelHost.Start();else modelHost.Stop();SettingsStore.Write("DenoiseBackend",BackendChoice.SelectedIndex);SettingsStore.Write("DenoiseLevel",originalHeld?0:DenoiseChoice.SelectedIndex);SchedulePreviewRecovery();UpdateEffectLabel();Status(DenoiseChoice.SelectedIndex==0?"Noise reduction off. Fresh frames bypass the worker immediately.":"Noise reduction requested. Check the delivery status for confirmation.");}catch(Exception e){SettingsStore.Write("DenoiseLevel",0);Status(e.Message,true);}
+        if(loading)return;try{denoiseSelectionTick=Environment.TickCount64;lastFilterProgressTick=0;observedMode=(-1,-1);if(SelectedBackend>=2&&DenoiseChoice.SelectedIndex>0)modelHost.Start();else modelHost.Stop();SettingsStore.Write("DenoiseBackend",SelectedBackend);SettingsStore.Write("DenoiseLevel",originalHeld?0:DenoiseChoice.SelectedIndex);SchedulePreviewRecovery();UpdateEffectLabel();Status(DenoiseChoice.SelectedIndex==0?"Noise reduction off. Fresh frames bypass the worker immediately.":"Noise reduction requested. Check the delivery status for confirmation.");}catch(Exception e){SettingsStore.Write("DenoiseLevel",0);Status(e.Message,true);}
     }
     private void SchedulePreviewRecovery(){long revision=++previewRecoveryRevision;_=RecoverPreviewDelay(revision);}
     private async Task RecoverPreviewDelay(long revision)
@@ -243,9 +243,9 @@ public partial class MainWindow : Window
         await Task.Delay(1000);
         if(revision!=previewRecoveryRevision||closing||busy||!running||originalHeld)return;
         bool off=DenoiseChoice.SelectedIndex==0;
-        if(!off&&(BackendChoice.SelectedIndex<2||AutoModelSizeToggle.IsChecked!=true))return;
+        if(!off&&(SelectedBackend<2||AutoModelSizeToggle.IsChecked!=true))return;
         CameraApi.PreviewStats(out _,out double age,out _);
-        double sourceAge=off?age:modelHost.ReadStatus(BackendChoice.SelectedIndex).SourceAge;
+        double sourceAge=off?age:modelHost.ReadStatus(SelectedBackend).SourceAge;
         if(sourceAge<250)return;
         await ReconnectPreview();
     }
@@ -286,20 +286,20 @@ public partial class MainWindow : Window
         try{SettingsStore.Write("ShadowCleanupStrength",(int)Math.Round(ShadowStrengthSlider.Value));SettingsStore.Write("ShadowCleanupEnabled",!originalHeld&&ShadowCleanupToggle.IsChecked==true?1:0);UpdateEffectLabel();Status(ShadowCleanupToggle.IsChecked==true?$"Shadow colour cleanup: {ShadowStrengthSlider.Value:0}%. Dark colours may fade.":"Shadow colour cleanup off.");}
         catch(Exception error){Status(error.Message,true);}
     }
-    private void RefreshBackendAvailability(){bool nvidia=File.Exists(Path.Combine(SettingsStore.InstallFolder,@"Nvidia\NVVideoEffects.dll"));((ComboBoxItem)BackendChoice.Items[0]).IsEnabled=nvidia;for(int i=2;i<ModelHost.Names.Length;i++)((ComboBoxItem)BackendChoice.Items[i]).IsEnabled=ModelHost.Available(i);int selected=BackendChoice.SelectedIndex;DenoiseChoice.IsEnabled=BackendChoice.IsEnabled&&((ComboBoxItem)BackendChoice.Items[selected]).IsEnabled&&(selected<2||ModelHost.EngineCurrent);BackendDescription.Text=ModelHost.Descriptions[selected];ModelOptions.Visibility=selected>=2?Visibility.Visible:Visibility.Collapsed;}
+    private void RefreshBackendAvailability(){bool nvidia=File.Exists(Path.Combine(SettingsStore.InstallFolder,@"Nvidia\NVVideoEffects.dll"));foreach(ComboBoxItem item in BackendChoice.Items){int id=(int)item.Tag;item.IsEnabled=id==0?nvidia:id==1||ModelHost.Available(id);}int selected=SelectedBackend;DenoiseChoice.IsEnabled=BackendChoice.IsEnabled&&(BackendChoice.SelectedItem as ComboBoxItem)?.IsEnabled==true&&(selected<2||ModelHost.EngineCurrent);BackendDescription.Text=ModelHost.Descriptions[selected];ModelOptions.Visibility=selected>=2?Visibility.Visible:Visibility.Collapsed;UseRecommendedButton.IsEnabled=BackendChoice.IsEnabled&&ranking.Best is not null;}
     private void UpdateEffectLabel(){
         int wanted=originalHeld?0:DenoiseChoice.SelectedIndex;
         var backend=SettingsStore.Backend();
-        EffectInfo.Text=originalHeld?"Original feed":wanted==0?"Noise reduction off":$"{ModelHost.Names[BackendChoice.SelectedIndex]} · {new[]{"Off","Low","Medium","High","Ultra"}[wanted]}";
+        EffectInfo.Text=originalHeld?"Original feed":wanted==0?"Noise reduction off":$"{ModelHost.Names[SelectedBackend]} · {new[]{"Off","Low","Medium","High","Ultra"}[wanted]}";
         if(!originalHeld&&shadowReady&&ShadowCleanupToggle.IsChecked==true)EffectInfo.Text+=$" · Shadow cleanup {ShadowStrengthSlider.Value:0}%";
-        var runtime=BackendChoice.SelectedIndex>=2?modelHost.ReadStatus(BackendChoice.SelectedIndex):null;
-        if(BackendChoice.SelectedIndex>=2){ModelStatus.Text=!ModelHost.Available(BackendChoice.SelectedIndex)?"Model files missing. Keep LenovoDenoiserRuntime beside the app folder.":!ModelHost.EngineCurrent?"Models are installed. Choose Camera → Install / update camera processing to activate them and the 500 ms limit.":wanted==0?"Select a strength to start this model.":runtime!.Message;ModelStatus.ToolTip=runtime?.Error;}
+        var runtime=SelectedBackend>=2?modelHost.ReadStatus(SelectedBackend):null;
+        if(SelectedBackend>=2){ModelStatus.Text=!ModelHost.Available(SelectedBackend)?"Model files missing. Keep LenovoDenoiserRuntime beside the app folder.":!ModelHost.EngineCurrent?"Models are installed. Choose Camera → Install / update camera processing to activate them and the 500 ms limit.":wanted==0?"Select a strength to start this model.":runtime!.Message;ModelStatus.ToolTip=runtime?.Error;}
         long now=Environment.TickCount64;
         if(observedMode!=(backend.Kind,backend.Level)||backend.Filtered<observedFiltered){observedMode=(backend.Kind,backend.Level);observedFiltered=backend.Filtered;lastFilterProgressTick=0;}
         if(backend.Filtered>observedFiltered){lastFilterProgressTick=now;observedFiltered=backend.Filtered;}
         if(filterWindowMode!=(backend.Kind,backend.Level)||backend.Filtered<filterWindowFrames||backend.Raw<filterWindowRaw){filterWindowMode=(backend.Kind,backend.Level);filterWindowTick=now;filterWindowFrames=backend.Filtered;filterWindowRaw=backend.Raw;filterShare="";recentMixed=false;}
         if(now-filterWindowTick>=1000){long filtered=backend.Filtered-filterWindowFrames,raw=backend.Raw-filterWindowRaw;filterShare=filtered+raw>0?$" · {100.0*filtered/(filtered+raw):0}% filtered":"";recentMixed=raw>0;filterWindowTick=now;filterWindowFrames=backend.Filtered;filterWindowRaw=backend.Raw;}
-        bool requested=running&&wanted>0;bool confirmed=backend.Fresh&&backend.Level==wanted&&backend.Kind==BackendChoice.SelectedIndex;
+        bool requested=running&&wanted>0;bool confirmed=backend.Fresh&&backend.Level==wanted&&backend.Kind==SelectedBackend;
         var delivery=DenoiseDelivery.Evaluate(requested,confirmed,confirmed?backend.Result:0,lastFilterProgressTick>0&&now-lastFilterProgressTick<1800,filterShare,now-denoiseSelectionTick,runtime?.Phase??"",AutoModelSizeToggle.IsChecked==true,recentMixed);
         DenoiseDeliveryPanel.Visibility=requested?Visibility.Visible:Visibility.Collapsed;DenoiseDeliveryTitle.Text=delivery.Title;DenoiseDeliveryAdvice.Text=delivery.Advice;
         bool delayedSource=requested&&confirmed&&backend.Result==unchecked((int)0x800705B4)&&runtime?.SourceAge>=250;
@@ -370,9 +370,12 @@ public partial class MainWindow : Window
     private void ApplyPreset(string name){if(!presets.TryGetValue(name,out var values))return;try{foreach(var item in settings.Values)if(values.TryGetValue($"{item.Group}:{item.Property}",out var entry)&&entry.Length==2){SetHardware(item,entry[0],entry[1]);refresh[item]();}Status($"Preset loaded: {name}");}catch(Exception e){Status(e.Message,true);}}
     internal async Task RenderTests(string path)
     {
-        DenoiseDeliveryTests.Run();
+        DenoiseDeliveryTests.Run();RankingTests.Run();
+        loading=true;int originalBackend=SelectedBackend;
+        foreach(ComboBoxItem item in BackendChoice.Items){int id=(int)item.Tag;SelectedBackend=id;if(SelectedBackend!=id)throw new Exception("Ranked selection changed the backend identity.");}
+        SelectedBackend=originalBackend;loading=false;
         ShowInTaskbar=false;Opacity=0;Show();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);
-        loading=true;BackendChoice.SelectedIndex=3;ModelSizeChoice.SelectedIndex=0;RefreshBackendAvailability();loading=false;
+        loading=true;SelectedBackend=3;ModelSizeChoice.SelectedIndex=0;RefreshBackendAvailability();loading=false;
         var example=DenoiseDelivery.Evaluate(true,true,unchecked((int)0x800705B4),false,"",10000,"processing",true);
         DenoiseDeliveryPanel.Visibility=Visibility.Visible;DenoiseDeliveryTitle.Text=example.Title;DenoiseDeliveryAdvice.Text=example.Advice;
         foreach(int theme in new[]{1,2})foreach(int tab in (FramingTab.Visibility==Visibility.Visible?new[]{0,1,2,3}:new[]{0,1,2})){ThemeChoice.SelectedIndex=theme;SettingsTabs.SelectedIndex=tab;await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);UpdateLayout();var content=(FrameworkElement)Content;double width=content.ActualWidth+56,height=content.ActualHeight+44;var visual=new DrawingVisual();using(var drawing=visual.RenderOpen()){drawing.DrawRectangle((Brush)Application.Current.Resources["CanvasBrush"],null,new Rect(0,0,width,height));drawing.DrawRectangle(new VisualBrush(content),null,new Rect(28,20,content.ActualWidth,content.ActualHeight));}var image=new RenderTargetBitmap((int)width,(int)height,96,96,PixelFormats.Pbgra32);image.Render(visual);var png=new PngBitmapEncoder();png.Frames.Add(BitmapFrame.Create(image));using var file=File.Create(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!,Path.GetFileNameWithoutExtension(path)+(theme==1?"-light":"-dark")+(tab==0?"":tab==1?"-exposure":tab==2?"-effects":"-framing")+".png"));png.Save(file);}
@@ -396,7 +399,7 @@ public partial class MainWindow : Window
             CameraApi.PreviewStats(out double offFps,out double offAge,out double offCopy);log.Add($"PASS: processing off: {offFps:0.0} fps, sampled frame age {offAge:0.0} ms, native copy {offCopy:0.00} ms.");
             if(offFps<27)throw new Exception("Fixed-shutter baseline did not reach normal camera frame rate.");
             double baseline=(await SamplePerformance()).Age;
-            BackendChoice.SelectedIndex=0;DenoiseChoice.SelectedIndex=1;await WaitFrames(100);
+            SelectedBackend=0;DenoiseChoice.SelectedIndex=1;await WaitFrames(100);
             var rtx=await SamplePerformance();var confirmed=SettingsStore.Backend();if(!confirmed.Fresh||confirmed.Kind!=0||confirmed.Level!=1||confirmed.Result!=0)throw new Exception("RTX worker did not confirm success.");
             if(rtx.Age>baseline+200)throw new Exception($"RTX frame age grew excessively: {rtx.Age:0.0} ms vs {baseline:0.0} ms baseline.");
             log.Add($"PASS: RTX Low: median frame age {rtx.Age:0.0} ms, rolling {rtx.Fps:0.0} fps.");
@@ -404,7 +407,7 @@ public partial class MainWindow : Window
             DenoiseChoice.SelectedIndex=4;await WaitFrames(70);await VerifyFilteredDelivery("RTX Ultra",log);var ultra=await SamplePerformance();log.Add($"PASS: RTX Ultra: median frame age {ultra.Age:0.0} ms, rolling {ultra.Fps:0.0} fps.");DenoiseChoice.SelectedIndex=0;await WaitFrames(65);var recovered=await SamplePerformance();
             if(recovered.Age>baseline+60||recovered.Fps<Math.Min(27,offFps*.9))throw new Exception($"Off did not recover: age {recovered.Age:0.0}, fps {recovered.Fps:0.0}.");
             log.Add($"PASS: Off after RTX Low/Ultra recovers without restart: median age {recovered.Age:0.0} ms, rolling {recovered.Fps:0.0} fps.");
-            BackendChoice.SelectedIndex=1;DenoiseChoice.SelectedIndex=2;await WaitFrames(100);var open=await SamplePerformance();confirmed=SettingsStore.Backend();if(!confirmed.Fresh||confirmed.Kind!=1||confirmed.Level!=2||confirmed.Result!=0)throw new Exception("Open GPU worker did not confirm success.");
+            SelectedBackend=1;DenoiseChoice.SelectedIndex=2;await WaitFrames(100);var open=await SamplePerformance();confirmed=SettingsStore.Backend();if(!confirmed.Fresh||confirmed.Kind!=1||confirmed.Level!=2||confirmed.Result!=0)throw new Exception("Open GPU worker did not confirm success.");
             if(open.Age>baseline+200)throw new Exception("Open GPU accumulated frame delay.");
             log.Add($"PASS: open-source GPU Medium: median age {open.Age:0.0} ms, rolling {open.Fps:0.0} fps.");
             await VerifyFilteredDelivery("open-source GPU Medium",log);
@@ -424,8 +427,8 @@ public partial class MainWindow : Window
             await StopPreview();await StartPreview();await WaitFrames(10);log.Add("PASS: WPF preview stops and restarts.");
         }catch(Exception error){log.Add("FAIL: "+error);throw;}finally{foreach(var item in originalSettings)try{SetHardware(item.Key,item.Value.Value,item.Value.Mode);}catch{}if(hasPriority)try{SetHardware(priority,oldPriority,oldPriorityMode);}catch{}SettingsStore.Write("FlipFlags",oldFlags);SettingsStore.Write("DenoiseBackend",oldBackend);SettingsStore.Write("DenoiseLevel",oldDenoise);File.WriteAllLines(path,log);Close();}
     }
-    private async Task WaitFrames(ulong count){ulong target=displayedSerial+count;var deadline=DateTime.UtcNow.AddSeconds(20);while(displayedSerial<target&&DateTime.UtcNow<deadline)await Task.Delay(35);if(displayedSerial<target)throw new Exception("Live preview did not produce enough frames.");}
-    private async Task VerifyFilteredDelivery(string name,List<string> log){var before=SettingsStore.Backend();await WaitFrames(65);var after=SettingsStore.Backend();long filtered=after.Filtered-before.Filtered,raw=after.Raw-before.Raw;double share=filtered/(double)Math.Max(1,filtered+raw);if(!after.Fresh||after.Result<0||after.Kind!=BackendChoice.SelectedIndex||after.Level!=DenoiseChoice.SelectedIndex||filtered<30||raw<0||share<.98)throw new Exception($"{name} did not deliver filtered images consistently: {filtered} filtered / {raw} original; status 0x{after.Result:X8}, backend {after.Kind}, level {after.Level}, fresh {after.Fresh}.");log.Add($"PASS: {name} actual delivered frames: {filtered} filtered / {raw} original ({share:P0} filtered), including colour-noise cleanup when RTX selected.");}
+    private async Task WaitFrames(ulong count){ulong received=0,previous=displayedSerial;var deadline=DateTime.UtcNow.AddSeconds(20);while(received<count&&DateTime.UtcNow<deadline){await Task.Delay(35);ulong current=displayedSerial;received+=current>=previous?current-previous:current;previous=current;}if(received<count)throw new Exception("Live preview did not produce enough frames.");}
+    private async Task VerifyFilteredDelivery(string name,List<string> log){var before=SettingsStore.Backend();await WaitFrames(65);var after=SettingsStore.Backend();long filtered=after.Filtered-before.Filtered,raw=after.Raw-before.Raw;double share=filtered/(double)Math.Max(1,filtered+raw);if(!after.Fresh||after.Result<0||after.Kind!=SelectedBackend||after.Level!=DenoiseChoice.SelectedIndex||filtered<30||raw<0||share<.98)throw new Exception($"{name} did not deliver filtered images consistently: {filtered} filtered / {raw} original; status 0x{after.Result:X8}, backend {after.Kind}, level {after.Level}, fresh {after.Fresh}.");log.Add($"PASS: {name} actual delivered frames: {filtered} filtered / {raw} original ({share:P0} filtered), including colour-noise cleanup when RTX selected.");}
     private async Task<(double Fps,double Age)> SamplePerformance(){var frames=new List<double>();var ages=new List<double>();for(int i=0;i<12;i++){await Task.Delay(65);CameraApi.PreviewStats(out double fps,out double age,out _);frames.Add(fps);ages.Add(age);}frames.Sort();ages.Sort();return(frames[6],ages[6]);}
     private double PresentedLuma(){if(bitmap is null)throw new Exception("No presented bitmap.");byte[] pixels=new byte[bitmap.PixelWidth*bitmap.PixelHeight*4];bitmap.CopyPixels(pixels,bitmap.PixelWidth*4,0);double sum=0;int count=0;for(int y=10;y<bitmap.PixelHeight;y+=13)for(int x=10;x<bitmap.PixelWidth;x+=13){int i=(y*bitmap.PixelWidth+x)*4;sum+=.0722*pixels[i]+.7152*pixels[i+1]+.2126*pixels[i+2];count++;}return sum/Math.Max(1,count);}
 }
