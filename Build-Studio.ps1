@@ -24,4 +24,5 @@ Copy-Item "$PSScriptRoot\models\*.md" "$destination\Models" -Force
 Copy-Item "$PSScriptRoot\model-performance.md","$PSScriptRoot\model-provenance.json" $destination -Force
 New-Item -ItemType Directory -Path "$destination\docs" -Force | Out-Null
 Copy-Item "$PSScriptRoot\docs\realtek-webcam-driver.md" "$destination\docs" -Force
+Copy-Item "$PSScriptRoot\docs\native-video-modes.md","$PSScriptRoot\docs\denoiser-delivery.md" "$destination\docs" -Force
 Write-Host "Fluent Windows app built: $destination\LenovoCameraControls.exe"

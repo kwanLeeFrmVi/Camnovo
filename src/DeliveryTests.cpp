@@ -14,5 +14,28 @@ int main(){CoInitializeEx(nullptr,COINIT_MULTITHREADED);MFStartup(MF_VERSION);in
     Check(filtered>=50,"late completed frames are being discarded");Check(rawAfterWarm==0,"raw frames silently replaced filtered frames after warm-up");Check(maxCall<40,"capture blocked on GPU work");
     auto off=Frame();auto original=off.Get();auto entered=std::chrono::steady_clock::now();Check(denoise.Process(type.Get(),off.GetAddressOf(),0,0)==S_FALSE&&off.Get()==original,"Off did not immediately return current input");Check(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-entered).count()<40,"Off blocked");
     std::printf("PASS: 45 ms processing with 33 ms capture delivers %d tagged filtered frames; %d skipped ticks; zero raw frames after warm-up; max handoff %.2f ms; timestamps monotonic; Off immediate.\n",filtered,skipped,maxCall);
+    const auto phaseStart=std::chrono::steady_clock::now();
+    RealtimeDenoiser recovering([&](IMFMediaType*,IMFSample** input,DWORD,DWORD){
+        const auto elapsed=std::chrono::steady_clock::now()-phaseStart;
+        Sleep(elapsed<std::chrono::seconds(4)?250:10);
+        // Simulate a centred temporal model returning the genuine frame from
+        // two capture intervals earlier, rather than the latest input frame.
+        LONGLONG referenceTime=0;(*input)->GetSampleTime(&referenceTime);
+        ComPtr<IMFSample> result;Hr(MFCreateSample(&result));Hr((*input)->CopyAllItems(result.Get()));
+        result->SetSampleTime(referenceTime-666666);result->SetUINT32(MFSampleExtension_CleanPoint,1);
+        (*input)->Release();*input=result.Detach();return S_OK;
+    });
+    int fallback=0,recovered=0,rawAfterRecovery=0;LONGLONG last=0;double maximumHandoff=0;
+    for(int i=0;i<235;i++){
+        std::this_thread::sleep_until(phaseStart+std::chrono::milliseconds(i*33));auto frame=Frame();auto before=std::chrono::steady_clock::now();
+        HRESULT result=recovering.Process(type.Get(),frame.GetAddressOf(),3,0);maximumHandoff=(std::max)(maximumHandoff,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-before).count());
+        if(result==MF_E_TRANSFORM_NEED_MORE_INPUT){Check(!frame,"recovery skipped output returned a sample");continue;}
+        Hr(result);LONGLONG stamp=0;Hr(frame->GetSampleTime(&stamp));Check(stamp>last,"recovery replayed or retimestamped old output");last=stamp;
+        if(result==S_OK){Check(i>110,"late result escaped the latency budget");recovered++;}
+        else{if(i<125)fallback++;if(i>170)rawAfterRecovery++;}
+    }
+    Check(fallback>5,"regression did not exercise prolonged raw fallback");Check(recovered>45,"filtered delivery did not recover after prolonged lateness");Check(rawAfterRecovery==0,"raw delivery starved recovered filtered results");Check(maximumHandoff<40,"recovery blocks capture");
+    auto recoveryOff=Frame();auto raw=recoveryOff.Get();Check(recovering.Process(type.Get(),recoveryOff.GetAddressOf(),0,0)==S_FALSE&&recoveryOff.Get()==raw,"Off after recovery was not immediate");
+    std::printf("PASS: prolonged late processing then 10 ms processing with two-frame temporal lag recovers %d filtered frames without changing mode; %d initial original frames; zero original after recovery; monotonic original timestamps, capture nonblocking, Off immediate.\n",recovered,fallback);
 }catch(const std::exception& e){std::printf("FAIL: %s\n",e.what());exitCode=1;}catch(HRESULT hr){std::printf("FAIL: 0x%08lx\n",hr);exitCode=1;}MFShutdown();CoUninitialize();return exitCode;}
 

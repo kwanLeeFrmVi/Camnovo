@@ -2,7 +2,7 @@
 
 A new view for your Lenovo webcam.
 
-Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.7**.
+Camnovo is a native Windows camera control app and Media Foundation camera extension. It adds live image adjustments, orientation controls and optional GPU denoising to the existing **Lenovo T24mv-30 RGB webcam** pipeline. The current app window is named **Lenovo Camera Studio**, version **0.8.8**.
 
 This is a camera-specific prototype. It targets `USB\VID_17EF&PID_483C&MI_00`, preserves the camera's existing identity and leaves the IR interface alone. It uses the Microsoft USB Video base driver, optionally with Realtek's extension. Compatibility with other webcams has not been established.
 
@@ -18,6 +18,8 @@ Version 0.8.7 supports Realtek-first processing and a **Framing** tab with digit
 - Horizontal mirror and upside-down flip.
 - Independent **Shadow colour cleanup** toggle and strength slider: reduces colour in deep shadows while preserving YUV brightness detail. Applies on slider release, works with denoising Off, and is bypassed by Hold Original. Real dark colours may fade.
 - Native **1920 × 1080 at 30 FPS** video. The synthetic 1440p option has been removed.
+- Automatic neural processing size: starts at a live profile within the selected maximum and reduces size when results exceed the latency budget. Smaller sizes lose detail. Turn automatic sizing off to use a fixed size.
+- Delivery status confirms actual filtered output and explicitly identifies original video during loading, errors and lateness. Filtering can recover after a prolonged fallback without changing the selected effect.
 - Windows light/dark theme, with optional app overrides.
 - Optional NVIDIA RTX processing, an original Direct3D 11 bilateral filter, and adapters for seven research video denoisers.
 
@@ -96,6 +98,8 @@ Native regression checks cover pixel orientation, Media Foundation transforms, q
 - `--exposure-self-test <report.txt>` checks auto exposure, live readback, stale-poll protection and immediate backlight slider delivery, restoring the tested settings afterward.
 - `--realtek-self-test <report.txt>` checks the active Realtek/Camnovo attachment, framing arrows, zoom and reset, effect delivery, Off recovery and preview restart, restoring settings afterward.
 - `--framing-self-test <report.txt>` checks directional buttons, limits, centring, keyboard navigation and native 1080p capture, restoring framing afterward.
+- `--auto-model-self-test <report.txt>` checks all seven neural choices with the existing exposure settings, automatic model sizing and a 1920 px maximum, counting actual filtered/original delivery and testing Off recovery.
+- `--denoise-self-test <report.txt>` reproduces late output with fixed full-HD ViDeNN, checks the visible fallback warning, then enables automatic sizing and verifies filtered recovery, live model switching and Off recovery.
 
 Live diagnostics require the camera and installed extension, and temporarily adjust settings. This is an unsigned prototype, not a production driver package or a general webcam installer.
 

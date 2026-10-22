@@ -93,6 +93,15 @@ HRESULT RealtimeDenoiser::Process(IMFMediaType* type,IMFSample** sample,DWORD q,
     const bool tooOld=ready&&b>=2&&MFGetSystemTime()-readyTime>4500000;
     if(tooOld)workerResult=HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     if(ready&&!tooOld&&readyTime>s.lastOutputTime&&readyTime<=incomingTime&&incomingTime-readyTime<=(b>=2?4500000:1500000)){s.lastOutputTime=readyTime;s.lastFilteredTick=now;s.status.result=S_OK;++s.status.delivered;*sample=ready.Detach();return S_OK;}
+    // During prolonged fallback, raw output advances lastOutputTime ahead of a
+    // temporal result. Once processing catches up to the latency budget, briefly
+    // stop raw delivery so a subsequent filtered timestamp can overtake it.
+    // Without this handoff, every valid result remains older than the latest raw
+    // frame forever, even after reducing model size. Never retimestamp or replay
+    // the old result; the wall-clock age limit still applies to recovery.
+    if(ready&&!tooOld&&readyTime>0&&readyTime<=s.lastOutputTime&&readyTime<=incomingTime&&incomingTime-readyTime<=(b>=2?4500000:1500000)){
+        s.lastFilteredTick=now;s.status.result=S_FALSE;return MF_E_TRANSFORM_NEED_MORE_INPUT;
+    }
     if(initialized&&SUCCEEDED(workerResult)&&now-s.lastFilteredTick<(b>=2?3000:750)){s.status.result=S_FALSE;return MF_E_TRANSFORM_NEED_MORE_INPUT;}
     if(!previous||Time(previous.Get())<=s.lastOutputTime)return MF_E_TRANSFORM_NEED_MORE_INPUT;
     s.lastOutputTime=Time(previous.Get());++s.status.raw;

@@ -17,7 +17,7 @@ public partial class App : Application
         base.OnStartup(e);
         if(e.Args.Length>0&&e.Args[0].EndsWith("self-test"))ShutdownMode=ShutdownMode.OnExplicitShutdown;
         try {
-            if(e.Args.Length>0&&e.Args[0].StartsWith("--")&&e.Args[0] is not "--self-test" and not "--live-self-test" and not "--model-self-test" and not "--exposure-self-test" and not "--shadow-self-test" and not "--realtek-self-test" and not "--framing-self-test") {
+            if(e.Args.Length>0&&e.Args[0].StartsWith("--")&&e.Args[0] is not "--self-test" and not "--live-self-test" and not "--model-self-test" and not "--exposure-self-test" and not "--shadow-self-test" and not "--realtek-self-test" and not "--framing-self-test" and not "--denoise-self-test" and not "--auto-model-self-test") {
                 var info=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"CameraSetup.exe")){UseShellExecute=false};
                 foreach(string arg in e.Args)info.ArgumentList.Add(arg);
                 using var process=Process.Start(info)!;await process.WaitForExitAsync();Shutdown(process.ExitCode);return;
@@ -31,6 +31,8 @@ public partial class App : Application
             if(e.Args.Length==2&&e.Args[0]=="--exposure-self-test") {await window.ExposureLiveTests(e.Args[1]);Shutdown(0);return;}
             if(e.Args.Length==2&&e.Args[0]=="--realtek-self-test") {await window.RealtekLiveTests(e.Args[1]);Shutdown(0);return;}
             if(e.Args.Length==2&&e.Args[0]=="--framing-self-test") {await window.FramingLiveTests(e.Args[1]);Shutdown(0);return;}
+            if(e.Args.Length==2&&e.Args[0]=="--denoise-self-test") {await window.DenoiseDiagnostic(e.Args[1]);Shutdown(0);return;}
+            if(e.Args.Length is 2 or 3&&e.Args[0]=="--auto-model-self-test") {await window.ModelLiveTests(e.Args[1],e.Args.Length==3?int.Parse(e.Args[2]):0,true);Shutdown(0);return;}
             if(e.Args.Length==2&&e.Args[0]=="--shadow-self-test") {await window.ShadowLiveTests(e.Args[1]);Shutdown(0);return;}
             if(e.Args.Length is 2 or 3&&e.Args[0]=="--model-self-test") {await window.ModelLiveTests(e.Args[1],e.Args.Length==3?int.Parse(e.Args[2]):0);Shutdown(0);return;}
             window.Show();

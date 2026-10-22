@@ -41,6 +41,9 @@ public partial class MainWindow : Window
     private long filterWindowTick,filterWindowFrames,filterWindowRaw;
     private (int,int) filterWindowMode=(-1,-1);
     private string filterShare="";
+    private bool recentMixed;
+    private long observedFiltered,lastFilterProgressTick,denoiseSelectionTick;
+    private (int,int) observedMode=(-1,-1);
     private readonly ModelHost modelHost=new();
     private bool shadowReady;
     private static readonly int[] ModelWidths=[128,192,320,640,960,1280,1920];
@@ -58,6 +61,9 @@ public partial class MainWindow : Window
         BackendChoice.SelectedIndex=Math.Clamp(SettingsStore.Read("DenoiseBackend"),0,8);
         ModelSizeChoice.SelectedIndex=Array.IndexOf(ModelWidths,SettingsStore.Read("DenoiseModelWidth",640));if(ModelSizeChoice.SelectedIndex<0)ModelSizeChoice.SelectedIndex=3;
         ModelSizeChoice.SelectionChanged+=(_,_)=>{if(!loading){int width=ModelWidths[ModelSizeChoice.SelectedIndex];SettingsStore.Write("DenoiseModelWidth",width);SettingsStore.Write($"DenoiseModelWidth{BackendChoice.SelectedIndex}",width);Status("Model processing size updated. The 500 ms limit remains active.");}};
+        AutoModelSizeToggle.IsChecked=SettingsStore.Read("DenoiseAutoSize",1)!=0;
+        void SaveAutoSize(){ModelSizeLabel.Text=AutoModelSizeToggle.IsChecked==true?"Maximum processing size":"Fixed processing size";if(!loading)try{SettingsStore.Write("DenoiseAutoSize",AutoModelSizeToggle.IsChecked==true?1:0);Status("Model sizing updated. Smaller processing sizes lose detail.");}catch(Exception e){Status(e.Message,true);}}
+        AutoModelSizeToggle.Checked+=(_,_)=>SaveAutoSize();AutoModelSizeToggle.Unchecked+=(_,_)=>SaveAutoSize();SaveAutoSize();
         bool writable=SettingsStore.Installed&&SettingsStore.Writable;MirrorToggle.IsEnabled=FlipToggle.IsEnabled=writable;
         // Retire synthetic 1440p output: the connected camera exposes 1080p video.
         if(writable)SettingsStore.Write("Enable1440p",0);
@@ -77,6 +83,7 @@ public partial class MainWindow : Window
         CameraMenuButton.Click+=(_,_)=>{CameraMenuButton.ContextMenu.PlacementTarget=CameraMenuButton;CameraMenuButton.ContextMenu.Placement=PlacementMode.Bottom;CameraMenuButton.ContextMenu.IsOpen=true;};
         InstallMenuItem.Click+=async(_,_)=>await RunSetup("--install-engine");
         RestartMenuItem.Click+=async(_,_)=>await RunSetup("--restart-camera");
+        DenoiseReconnectButton.Click+=async(_,_)=>await RunSetup("--restart-camera");
         RestoreMenuItem.Click+=async(_,_)=>await RunSetup("--restore-engine");
         PresetChoice.SelectionChanged+=(_,_)=>{if(!loading&&PresetChoice.SelectedIndex>0)ApplyPreset(PresetChoice.SelectedItem?.ToString()??"");};
         ResetEffectsButton.Click+=(_,_)=>{loading=true;MirrorToggle.IsChecked=FlipToggle.IsChecked=ShadowCleanupToggle.IsChecked=false;ShadowStrengthSlider.Value=70;DenoiseChoice.SelectedIndex=0;loading=false;OrientationChanged(null,null);SaveShadowCleanup();SaveDenoise();};
@@ -223,7 +230,7 @@ public partial class MainWindow : Window
     }
     private void SaveDenoise()
     {
-        if(loading)return;try{if(BackendChoice.SelectedIndex>=2&&DenoiseChoice.SelectedIndex>0)modelHost.Start();else modelHost.Stop();SettingsStore.Write("DenoiseBackend",BackendChoice.SelectedIndex);SettingsStore.Write("DenoiseLevel",originalHeld?0:DenoiseChoice.SelectedIndex);UpdateEffectLabel();Status(DenoiseChoice.SelectedIndex==0?"Noise reduction off. Fresh frames bypass the worker immediately.":"Noise reduction updated. Use 100% zoom and hold Original to compare.");}catch(Exception e){SettingsStore.Write("DenoiseLevel",0);Status(e.Message,true);}
+        if(loading)return;try{denoiseSelectionTick=Environment.TickCount64;lastFilterProgressTick=0;observedMode=(-1,-1);if(BackendChoice.SelectedIndex>=2&&DenoiseChoice.SelectedIndex>0)modelHost.Start();else modelHost.Stop();SettingsStore.Write("DenoiseBackend",BackendChoice.SelectedIndex);SettingsStore.Write("DenoiseLevel",originalHeld?0:DenoiseChoice.SelectedIndex);UpdateEffectLabel();Status(DenoiseChoice.SelectedIndex==0?"Noise reduction off. Fresh frames bypass the worker immediately.":"Noise reduction requested. Check the delivery status for confirmation.");}catch(Exception e){SettingsStore.Write("DenoiseLevel",0);Status(e.Message,true);}
     }
     private void InitializeShadowControls()
     {
@@ -261,11 +268,22 @@ public partial class MainWindow : Window
         var backend=SettingsStore.Backend();
         EffectInfo.Text=originalHeld?"Original feed":wanted==0?"Noise reduction off":$"{ModelHost.Names[BackendChoice.SelectedIndex]} · {new[]{"Off","Low","Medium","High","Ultra"}[wanted]}";
         if(!originalHeld&&shadowReady&&ShadowCleanupToggle.IsChecked==true)EffectInfo.Text+=$" · Shadow cleanup {ShadowStrengthSlider.Value:0}%";
-        if(BackendChoice.SelectedIndex>=2)ModelStatus.Text=!ModelHost.Available(BackendChoice.SelectedIndex)?"Model files missing. Keep LenovoDenoiserRuntime beside the app folder.":!ModelHost.EngineCurrent?"Models are installed. Choose Camera → Install / update camera processing to activate them and the 500 ms limit.":modelHost.Message;
+        var runtime=BackendChoice.SelectedIndex>=2?modelHost.ReadStatus(BackendChoice.SelectedIndex):null;
+        if(BackendChoice.SelectedIndex>=2){ModelStatus.Text=!ModelHost.Available(BackendChoice.SelectedIndex)?"Model files missing. Keep LenovoDenoiserRuntime beside the app folder.":!ModelHost.EngineCurrent?"Models are installed. Choose Camera → Install / update camera processing to activate them and the 500 ms limit.":wanted==0?"Select a strength to start this model.":runtime!.Message;ModelStatus.ToolTip=runtime?.Error;}
         long now=Environment.TickCount64;
-        if(filterWindowMode!=(backend.Kind,backend.Level)||backend.Filtered<filterWindowFrames||backend.Raw<filterWindowRaw){filterWindowMode=(backend.Kind,backend.Level);filterWindowTick=now;filterWindowFrames=backend.Filtered;filterWindowRaw=backend.Raw;filterShare="";}
-        if(now-filterWindowTick>=1000){long filtered=backend.Filtered-filterWindowFrames,raw=backend.Raw-filterWindowRaw;filterShare=filtered+raw>0?$" · {100.0*filtered/(filtered+raw):0}% filtered":"";filterWindowTick=now;filterWindowFrames=backend.Filtered;filterWindowRaw=backend.Raw;}
-        if(running&&wanted>0)EffectInfo.Text+=backend.Fresh&&backend.Level==wanted&&backend.Kind==BackendChoice.SelectedIndex?(backend.Result>=0&&backend.Filtered>0?$" · Filter {backend.Milliseconds:0.0} ms{filterShare}":backend.Result>=0?" · warming / waiting":backend.Result==unchecked((int)0x800705B4)&&BackendChoice.SelectedIndex>=2?" · 500 ms limit / original feed":" · bypassed (error)"):" · waiting for confirmation";
+        if(observedMode!=(backend.Kind,backend.Level)||backend.Filtered<observedFiltered){observedMode=(backend.Kind,backend.Level);observedFiltered=backend.Filtered;lastFilterProgressTick=0;}
+        if(backend.Filtered>observedFiltered){lastFilterProgressTick=now;observedFiltered=backend.Filtered;}
+        if(filterWindowMode!=(backend.Kind,backend.Level)||backend.Filtered<filterWindowFrames||backend.Raw<filterWindowRaw){filterWindowMode=(backend.Kind,backend.Level);filterWindowTick=now;filterWindowFrames=backend.Filtered;filterWindowRaw=backend.Raw;filterShare="";recentMixed=false;}
+        if(now-filterWindowTick>=1000){long filtered=backend.Filtered-filterWindowFrames,raw=backend.Raw-filterWindowRaw;filterShare=filtered+raw>0?$" · {100.0*filtered/(filtered+raw):0}% filtered":"";recentMixed=raw>0;filterWindowTick=now;filterWindowFrames=backend.Filtered;filterWindowRaw=backend.Raw;}
+        bool requested=running&&wanted>0;bool confirmed=backend.Fresh&&backend.Level==wanted&&backend.Kind==BackendChoice.SelectedIndex;
+        var delivery=DenoiseDelivery.Evaluate(requested,confirmed,confirmed?backend.Result:0,lastFilterProgressTick>0&&now-lastFilterProgressTick<1800,filterShare,now-denoiseSelectionTick,runtime?.Phase??"",AutoModelSizeToggle.IsChecked==true,recentMixed);
+        DenoiseDeliveryPanel.Visibility=requested?Visibility.Visible:Visibility.Collapsed;DenoiseDeliveryTitle.Text=delivery.Title;DenoiseDeliveryAdvice.Text=delivery.Advice;
+        bool delayedSource=requested&&confirmed&&backend.Result==unchecked((int)0x800705B4)&&runtime?.SourceAge>=250;
+        DenoiseReconnectButton.Visibility=delayedSource?Visibility.Visible:Visibility.Collapsed;
+        if(delayedSource){DenoiseDeliveryTitle.Text="Showing original · camera delay too high";DenoiseDeliveryAdvice.Text=$"Frames already arrive about {runtime!.SourceAge:0} ms old before denoising. Close other camera apps and restart camera processing to clear delayed frames.";}
+        DenoiseDeliveryTitle.SetResourceReference(TextBlock.ForegroundProperty,delivery.Warning?"SystemFillColorCautionBrush":"InkBrush");
+        if(requested){EffectInfo.Text=DenoiseDeliveryTitle.Text;LiveBadge.Text=delivery.Warning?(delivery.Title.StartsWith("Denoising")?"LIVE · FILTERING INTERRUPTED":"LIVE · ORIGINAL IMAGE"):"LIVE";}
+        else if(running)LiveBadge.Text="LIVE";
         EffectInfo.ToolTip=backend.Fresh?$"Delivered filtered frames: {backend.Filtered}; original warm-up / fallback frames: {backend.Raw}. Result: 0x{backend.Result:X8}. The percentage uses recent delivered frames. Filter time includes transfers and cleanup; it is not total pipeline latency.":"Waiting for camera backend status.";
         OriginalButton.IsEnabled=running&&((DenoiseChoice.IsEnabled&&wanted>0)||(shadowReady&&ShadowCleanupToggle.IsChecked==true))&&!originalHeld;
         if(originalHeld)OriginalButton.IsEnabled=true;
@@ -328,8 +346,11 @@ public partial class MainWindow : Window
     private void ApplyPreset(string name){if(!presets.TryGetValue(name,out var values))return;try{foreach(var item in settings.Values)if(values.TryGetValue($"{item.Group}:{item.Property}",out var entry)&&entry.Length==2){SetHardware(item,entry[0],entry[1]);refresh[item]();}Status($"Preset loaded: {name}");}catch(Exception e){Status(e.Message,true);}}
     internal async Task RenderTests(string path)
     {
+        DenoiseDeliveryTests.Run();
         ShowInTaskbar=false;Opacity=0;Show();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);
         loading=true;BackendChoice.SelectedIndex=3;ModelSizeChoice.SelectedIndex=0;RefreshBackendAvailability();loading=false;
+        var example=DenoiseDelivery.Evaluate(true,true,unchecked((int)0x800705B4),false,"",10000,"processing",true);
+        DenoiseDeliveryPanel.Visibility=Visibility.Visible;DenoiseDeliveryTitle.Text=example.Title;DenoiseDeliveryAdvice.Text=example.Advice;
         foreach(int theme in new[]{1,2})foreach(int tab in (FramingTab.Visibility==Visibility.Visible?new[]{0,1,2,3}:new[]{0,1,2})){ThemeChoice.SelectedIndex=theme;SettingsTabs.SelectedIndex=tab;await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);UpdateLayout();var content=(FrameworkElement)Content;double width=content.ActualWidth+56,height=content.ActualHeight+44;var visual=new DrawingVisual();using(var drawing=visual.RenderOpen()){drawing.DrawRectangle((Brush)Application.Current.Resources["CanvasBrush"],null,new Rect(0,0,width,height));drawing.DrawRectangle(new VisualBrush(content),null,new Rect(28,20,content.ActualWidth,content.ActualHeight));}var image=new RenderTargetBitmap((int)width,(int)height,96,96,PixelFormats.Pbgra32);image.Render(visual);var png=new PngBitmapEncoder();png.Frames.Add(BitmapFrame.Create(image));using var file=File.Create(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!,Path.GetFileNameWithoutExtension(path)+(theme==1?"-light":"-dark")+(tab==0?"":tab==1?"-exposure":tab==2?"-effects":"-framing")+".png"));png.Save(file);}
         ThemeChoice.SelectedIndex=0;Close();
     }
